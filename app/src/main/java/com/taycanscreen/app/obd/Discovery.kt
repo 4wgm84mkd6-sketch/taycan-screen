@@ -41,12 +41,15 @@ object Discovery {
     sealed interface State {
         data object Idle : State
         data class Scanning(val module: String, val done: Int, val total: Int, val found: Int) : State
-        data class Ready(val found: Int, val recorded: Set<String>) : State
+        data class Ready(val found: Int, val recorded: Set<String>, val scanComplete: Boolean) : State
         data class Recording(val step: String, val round: Int, val done: Int, val total: Int) : State
     }
 
     sealed interface Request {
+        /** Scan modules not finished yet (continues an interrupted scan). */
         data object Scan : Request
+        /** Forget earlier results and scan every module again. */
+        data object RestartScan : Request
         data class Record(val step: String) : Request
     }
 
@@ -64,6 +67,31 @@ object Discovery {
     fun saveFound(context: Context, found: Map<String, List<Int>>) {
         val raw = found.entries.joinToString(";") { (hdr, dids) -> "$hdr:" + dids.joinToString(",") { "%04X".format(it) } }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("found", raw).apply()
+    }
+
+    /** Where an interrupted scan stopped: module header and the next identifier to ask. */
+    fun loadPartial(context: Context): Pair<String?, Int> {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return p.getString("partial_hdr", null) to p.getInt("partial_next", 0)
+    }
+
+    fun savePartial(context: Context, hdr: String, nextDid: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("partial_hdr", hdr).putInt("partial_next", nextDid).apply()
+    }
+
+    fun clearPartial(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove("partial_hdr").remove("partial_next").apply()
+    }
+
+    fun scanComplete(context: Context): Boolean {
+        val found = loadFound(context)
+        return loadPartial(context).first == null && MODULES.all { found.containsKey(it.hdr) }
+    }
+
+    fun clearAll(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }
 
     fun recorded(context: Context): Set<String> =

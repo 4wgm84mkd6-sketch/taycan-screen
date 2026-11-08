@@ -74,12 +74,13 @@ object ObdEngine {
     val discovery: StateFlow<Discovery.State> = _discovery.asStateFlow()
     @Volatile private var discoveryRequest: Discovery.Request? = null
     @Volatile private var discoveryCancel = false
+    @Volatile private var scanAutoResumes = 0
 
     fun refreshDiscovery(force: Boolean = false) {
         val found = Discovery.loadFound(app)
         if (force || _discovery.value is Discovery.State.Idle || _discovery.value is Discovery.State.Ready) {
             _discovery.value = if (found.isEmpty()) Discovery.State.Idle
-            else Discovery.State.Ready(found.values.sumOf { it.size }, Discovery.recorded(app))
+            else Discovery.State.Ready(found.values.sumOf { it.size }, Discovery.recorded(app), Discovery.scanComplete(app))
         }
     }
 
@@ -234,8 +235,16 @@ object ObdEngine {
                 discoveryRequest = null
                 try {
                     runDiscovery(c, req)
+                } catch (e: java.io.IOException) {
+                    // Link dropped mid-scan: carry on automatically after reconnecting (a few times at most).
+                    if (req != Discovery.Request.Scan && req != Discovery.Request.RestartScan) throw e
+                    if (scanAutoResumes++ < 5) {
+                        AppLog.warn("disc", "Scan interrupted (${e.message}); will continue after reconnecting")
+                        discoveryRequest = Discovery.Request.Scan
+                    }
+                    throw e
                 } finally {
-                    c.send("ATST64")
+                    runCatching { c.send("ATST64") }
                     header = null            // force the normal header/flow control to be set again
                     customFlowControl = true
                     refreshDiscovery(force = true)
@@ -299,31 +308,45 @@ object ObdEngine {
 
     private suspend fun runDiscovery(c: ElmConnection, req: Discovery.Request) {
         when (req) {
-            Discovery.Request.Scan -> {
-                AppLog.info("disc", "Scan started")
-                Discovery.clearRecorded(app)
+            Discovery.Request.Scan, Discovery.Request.RestartScan -> {
+                if (req == Discovery.Request.RestartScan) Discovery.clearAll(app)
+                AppLog.info("disc", "Scan ${if (req == Discovery.Request.RestartScan) "started from scratch" else "started/continued"}")
+                Discovery.clearRecorded(app) // new identifiers need every state recorded again
                 c.send("ATST19") // 100 ms reply timeout: unsupported identifiers fail fast
-                val found = LinkedHashMap<String, List<Int>>()
-                var total = 0
+                val found = LinkedHashMap(Discovery.loadFound(app))
+                val (partialHdr, partialNext) = Discovery.loadPartial(app)
                 for (m in Discovery.MODULES) {
+                    val resuming = partialHdr == m.hdr
+                    if (found.containsKey(m.hdr) && !resuming) continue // module finished earlier
                     Discovery.select(c, m)
-                    val hits = ArrayList<Int>()
+                    val hits = if (resuming) ArrayList(found[m.hdr].orEmpty()) else ArrayList()
+                    val start = if (resuming) partialNext.coerceIn(m.dids.first, m.dids.last) else m.dids.first
                     val count = m.dids.count()
-                    for ((i, did) in m.dids.withIndex()) {
+                    if (resuming) AppLog.info("disc", "Resuming ${m.name} at 22%04X".format(start))
+                    for (did in start..m.dids.last) {
                         if (discoveryCancel || !currentCoroutineContext().isActive) break
                         Discovery.read(c, m, did)?.let { data ->
                             hits.add(did)
                             Discovery.logFound(m, did, data)
                         }
-                        if (i % 25 == 0) _discovery.value = Discovery.State.Scanning(m.name, i, count, total + hits.size)
+                        if ((did - start) % 25 == 0) {
+                            // Save progress so a Bluetooth drop only costs the last few identifiers.
+                            found[m.hdr] = ArrayList(hits)
+                            Discovery.saveFound(app, found)
+                            Discovery.savePartial(app, m.hdr, did)
+                            _discovery.value = Discovery.State.Scanning(
+                                m.name, did - m.dids.first, count, found.values.sumOf { it.size },
+                            )
+                        }
                     }
                     found[m.hdr] = hits
-                    total += hits.size
-                    AppLog.info("disc", "${m.name} (${m.hdr}): ${hits.size} identifiers answer")
                     Discovery.saveFound(app, found)
                     if (discoveryCancel) break
+                    Discovery.clearPartial(app)
+                    AppLog.info("disc", "${m.name} (${m.hdr}): ${hits.size} identifiers answer")
                 }
-                AppLog.info("disc", "Scan ${if (discoveryCancel) "stopped" else "finished"}: $total identifiers")
+                scanAutoResumes = 0
+                AppLog.info("disc", "Scan ${if (discoveryCancel) "stopped" else "finished"}: ${found.values.sumOf { it.size }} identifiers")
             }
             is Discovery.Request.Record -> {
                 val found = Discovery.loadFound(app)

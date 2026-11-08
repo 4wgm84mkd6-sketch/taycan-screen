@@ -348,6 +348,11 @@ private fun DiscoveryPanel(obd: ObdViewModel) {
                 BigButton("Stop") { obd.cancelDiscovery() }
             }
             is Discovery.State.Ready -> {
+                if (!s.scanComplete) {
+                    StatusText("The scan isn't finished (found ${s.found} so far). Continue it first:", Palette.Warn)
+                    BigButton("1. Continue scan", enabled = live) { obd.requestDiscovery(Discovery.Request.Scan) }
+                    return@Panel
+                }
                 StatusText("Scan found ${s.found} values. Now set up each state, tap its button, and hold it until recording finishes:", Palette.Accent)
                 Discovery.STEPS.forEachIndexed { i, step ->
                     val done = step in s.recorded
@@ -356,7 +361,7 @@ private fun DiscoveryPanel(obd: ObdViewModel) {
                     }
                 }
                 StatusText("When all are ticked, tap Send log to Claude.")
-                BigButton("Scan again", enabled = live) { obd.requestDiscovery(Discovery.Request.Scan) }
+                BigButton("Scan again from scratch", enabled = live) { obd.requestDiscovery(Discovery.Request.RestartScan) }
             }
         }
     }
