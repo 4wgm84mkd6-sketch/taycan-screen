@@ -2,7 +2,10 @@ package com.taycanscreen.app.ui
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.media.AudioManager
+import android.view.ViewOutlineProvider
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -63,7 +67,6 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.TilesOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.io.File
@@ -73,6 +76,24 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val DASH = "—"
+
+/** Dark map that keeps hues (water stays blue, parks green): invert, rotate hue 180°, dim slightly. */
+private val NightMapFilter: ColorMatrixColorFilter by lazy {
+    val m = ColorMatrix(floatArrayOf(
+        -1f, 0f, 0f, 0f, 255f,
+        0f, -1f, 0f, 0f, 255f,
+        0f, 0f, -1f, 0f, 255f,
+        0f, 0f, 0f, 1f, 0f,
+    ))
+    m.postConcat(ColorMatrix(floatArrayOf(
+        -0.574f, 1.430f, 0.144f, 0f, 0f,
+        0.426f, 0.430f, 0.144f, 0f, 0f,
+        0.426f, 1.430f, -0.856f, 0f, 0f,
+        0f, 0f, 0f, 1f, 0f,
+    )))
+    m.postConcat(ColorMatrix().apply { setScale(0.85f, 0.85f, 0.9f, 1f) })
+    ColorMatrixColorFilter(m)
+}
 private val PanelWidth = 300.dp
 private val DockHeight = 64.dp
 
@@ -109,7 +130,7 @@ fun DriveScreen(
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
         Row(Modifier.fillMaxWidth().weight(1f)) {
-            VehiclePanel(v, status.state, colors, Modifier.width(PanelWidth).fillMaxHeight())
+            VehiclePanel(v, status.state, status.detail, colors, Modifier.width(PanelWidth).fillMaxHeight())
             Box(Modifier.width(1.dp).fillMaxHeight().background(colors.border))
             MapArea(v, colors, locationGranted, Modifier.weight(1f).fillMaxHeight())
         }
@@ -149,7 +170,7 @@ private data class VehicleValues(
 }
 
 @Composable
-private fun VehiclePanel(v: VehicleValues, link: LinkState, c: DriveColors, modifier: Modifier) {
+private fun VehiclePanel(v: VehicleValues, link: LinkState, detail: String, c: DriveColors, modifier: Modifier) {
     Column(
         modifier.background(c.panel).padding(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -166,6 +187,9 @@ private fun VehiclePanel(v: VehicleValues, link: LinkState, c: DriveColors, modi
                 " ${v.soc?.roundToInt() ?: DASH}%",
                 color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
             )
+        }
+        if (link != LinkState.Live && detail.isNotBlank()) {
+            Text(detail, color = c.warn, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
 
         Column {
@@ -253,6 +277,9 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
             osmdroidTileCache = File(context.cacheDir, "osmdroid-tiles")
         }
         MapView(context).apply {
+            // Keep the map inside its own area (it pans by scrolling and otherwise spills over the panel).
+            outlineProvider = ViewOutlineProvider.BOUNDS
+            clipToOutline = true
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
@@ -266,7 +293,10 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
         else MyLocationNewOverlay(GpsMyLocationProvider(context), mapView).apply {
             enableMyLocation()
             enableFollowLocation()
-            runOnFirstFix { AppLog.info("map", "GPS fix") }
+            runOnFirstFix {
+                myLocation?.let { Sun.latitude = it.latitude; Sun.longitude = it.longitude }
+                AppLog.info("map", "GPS fix")
+            }
         }
     }
     DisposableEffect(locationOverlay) {
@@ -294,12 +324,20 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
         }
     }
 
-    Box(modifier.background(c.background)) {
+    // Keep the sun calculation's position current while driving.
+    LaunchedEffect(locationOverlay) {
+        while (locationOverlay != null) {
+            locationOverlay.myLocation?.let { Sun.latitude = it.latitude; Sun.longitude = it.longitude }
+            delay(60_000)
+        }
+    }
+
+    Box(modifier.clipToBounds().background(c.background)) {
         AndroidView(
             factory = { mapView },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().clipToBounds(),
             update = {
-                it.overlayManager.tilesOverlay.setColorFilter(if (c.isNight) TilesOverlay.INVERT_COLORS else null)
+                it.overlayManager.tilesOverlay.setColorFilter(if (c.isNight) NightMapFilter else null)
                 it.invalidate()
             },
         )

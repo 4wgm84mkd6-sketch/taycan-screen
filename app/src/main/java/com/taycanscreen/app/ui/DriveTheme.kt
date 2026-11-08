@@ -1,7 +1,6 @@
 package com.taycanscreen.app.ui
 
 import androidx.compose.ui.graphics.Color
-import java.time.LocalTime
 
 /** Day and night colors from the design's "Drive — day" and "Drive — night" artboards. */
 data class DriveColors(
@@ -43,9 +42,9 @@ enum class ThemeMode { Auto, Day, Night;
     fun label(): String = when (this) { Auto -> "Auto"; Day -> "Day"; Night -> "Night" }
 }
 
-/** Auto: night from 6:30 pm to 6:30 am by the box's clock (set the box's time zone correctly). */
-fun ThemeMode.isNight(now: LocalTime = LocalTime.now()): Boolean = when (this) {
+/** Auto: night when the sun is down at the car's GPS position (independent of the box's time zone). */
+fun ThemeMode.isNight(epochMs: Long = System.currentTimeMillis()): Boolean = when (this) {
     ThemeMode.Day -> false
     ThemeMode.Night -> true
-    ThemeMode.Auto -> now.isAfter(LocalTime.of(18, 30)) || now.isBefore(LocalTime.of(6, 30))
+    ThemeMode.Auto -> Sun.isNight(epochMs)
 }
