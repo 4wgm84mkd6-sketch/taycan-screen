@@ -38,4 +38,4 @@ I work entirely from my iPhone. You can't reach the box directly, so:
 5. Later: test whether an EQ can attach to Spotify's audio session on the box (gate G4) before building the Audio screen.
 
 ## Status log
-- 2026-11-08: Task 1 written (build/sign/release workflow, Check for update, Share log, log viewer). Build 1 also includes a Screen panel that logs the window size and density (early part of task 3). Car Scanner definitions not yet in /reference.
+- 2026-11-08: Task 1 done in code: build/sign/release workflow, Check for update, Share log, log viewer, plus a Screen panel that logs window size and density (early part of task 3). CI compiles cleanly. Awaiting first install on the box. Car Scanner definitions not yet in /reference.
