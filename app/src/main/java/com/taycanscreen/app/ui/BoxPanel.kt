@@ -16,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.taycanscreen.app.box.BoxHealth
 import com.taycanscreen.app.log.AppLog
+import kotlinx.coroutines.delay
 
 /** Box health: inventory of installed apps, boot starters, memory/storage, with remove/settings buttons. */
 @Composable
@@ -47,7 +49,60 @@ fun BoxPanel(modifier: Modifier = Modifier) {
         }
     }
 
+    // Re-check the cleanup list every 2 s, so items tick off when you come back from Android's screens.
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2_000)
+            tick++
+        }
+    }
+    val cleanup = remember(tick) { BoxHealth.CLEANUP.map { it to BoxHealth.cleanupState(context, it) } }
+
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Column(
+                Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(12.dp)).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val left = cleanup.count { it.second == BoxHealth.CleanupState.Pending }
+                Text("Cleanup (approved list) · ${cleanup.size - left} of ${cleanup.size} done", color = Palette.TextDim, fontSize = 16.sp)
+                Text(
+                    "Uninstall: tap it, then OK. Disable: tap it, then Disable on Android's screen (if it's greyed out, " +
+                        "that app can't be disabled; skip it), then come back here.",
+                    color = Palette.Text, fontSize = 15.sp,
+                )
+                cleanup.forEach { (item, state) ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                (if (state == BoxHealth.CleanupState.Pending) "" else "✓ ") + item.label,
+                                color = if (state == BoxHealth.CleanupState.Pending) Palette.Text else Palette.Accent,
+                                fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                when (state) {
+                                    BoxHealth.CleanupState.Gone -> "removed"
+                                    BoxHealth.CleanupState.Done -> "disabled"
+                                    BoxHealth.CleanupState.Pending -> item.why
+                                },
+                                color = Palette.TextDim, fontSize = 13.sp,
+                            )
+                        }
+                        if (state == BoxHealth.CleanupState.Pending) {
+                            if (item.action == BoxHealth.Action.Uninstall) {
+                                SmallAction("Uninstall") { open(BoxHealth.uninstallIntent(item.pkg), "uninstall") }
+                            } else {
+                                SmallAction("Disable…") { open(BoxHealth.settingsIntent(item.pkg), "app settings") }
+                            }
+                        }
+                    }
+                }
+                if (left == 0) {
+                    Text("All done. Restart the box (switch the car off and on) and send a log so we can compare start-up times.", color = Palette.Accent, fontSize = 15.sp)
+                }
+            }
+        }
         item {
             Column(
                 Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(12.dp)).padding(14.dp),

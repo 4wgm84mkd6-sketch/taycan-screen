@@ -105,6 +105,38 @@ object BoxHealth {
         AppLog.info("box", "Inventory: ${apps.size} apps logged")
     }
 
+    /** What the owner approved on 2026-11-08 (see docs/HANDOFF.md). */
+    enum class Action { Uninstall, Disable }
+    data class CleanupItem(val pkg: String, val label: String, val action: Action, val why: String)
+
+    val CLEANUP = listOf(
+        CleanupItem("com.taycanscreen.obdprobe", "OBD Probe", Action.Uninstall, "old test app"),
+        CleanupItem("com.estrongs.android.pop", "ES File Explorer", Action.Uninstall, "privacy concerns"),
+        CleanupItem("com.apkpure.aegon", "APKPure", Action.Uninstall, "app store, not needed"),
+        CleanupItem("com.netflix.mediaclient", "Netflix", Action.Uninstall, "video"),
+        CleanupItem("com.google.android.youtube", "YouTube", Action.Uninstall, "video"),
+        CleanupItem("org.videolan.vlc", "VLC", Action.Uninstall, "video"),
+        CleanupItem("com.suding.datamanager", "DataReport", Action.Disable, "always running; usage reporting"),
+        CleanupItem("com.meig.logger", "MeigLogger", Action.Disable, "always running system logger"),
+        CleanupItem("com.google.android.googlequicksearchbox", "Google", Action.Disable, "240 MB, starts at boot"),
+        CleanupItem("com.quicinc.voice.activation", "Qualcomm Voice Assist", Action.Disable, "starts at boot"),
+        CleanupItem("com.meigsmart.meigrs32", "CITtest", Action.Disable, "factory test"),
+        CleanupItem("com.suding.factorytest", "Factory test (工厂测试)", Action.Disable, "factory test"),
+        CleanupItem("com.sd.ball", "FloatingBall", Action.Disable, "always running floating button"),
+    )
+
+    enum class CleanupState { Pending, Done, Gone }
+
+    /** Done = disabled (for Disable) / Gone = no longer installed. */
+    fun cleanupState(context: Context, item: CleanupItem): CleanupState {
+        val ai = try {
+            context.packageManager.getApplicationInfo(item.pkg, 0)
+        } catch (_: PackageManager.NameNotFoundException) {
+            return CleanupState.Gone
+        }
+        return if (item.action == Action.Disable && !ai.enabled) CleanupState.Done else CleanupState.Pending
+    }
+
     fun uninstallIntent(pkg: String) = Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg"))
     fun settingsIntent(pkg: String) = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg"))
 }
