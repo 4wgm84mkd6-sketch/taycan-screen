@@ -31,11 +31,11 @@ object LogUploader {
     suspend fun upload(context: Context): String = withContext(Dispatchers.IO) {
         if (!GitHubAuth.configured) return@withContext "Not set up yet."
         val token = GitHubAuth.token(context) ?: throw SignInNeeded("Sign in to GitHub first.")
-        AppLog.currentFile() // flushes the current session
-        val files = AppLog.logDir(context).listFiles { f -> f.name.endsWith(".log") }
-            ?.sortedByDescending { it.name }
-            ?.take(SESSIONS_TO_SEND)
-            .orEmpty()
+        val current = AppLog.currentFile() // also flushes it
+        // Always the current session first, then the most recent earlier ones.
+        val files = (listOfNotNull(current) + AppLog.sessionFiles(context))
+            .distinctBy { it.absolutePath }
+            .take(SESSIONS_TO_SEND)
         if (files.isEmpty()) return@withContext "No logs yet."
 
         val stamp = LocalDateTime.now()

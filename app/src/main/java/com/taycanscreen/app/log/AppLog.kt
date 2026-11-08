@@ -40,17 +40,28 @@ object AppLog {
             if (writer != null) return
             val dir = logDir(context)
             dir.mkdirs()
-            dir.listFiles { f -> f.name.endsWith(".log") }
-                ?.sortedByDescending { it.name }
-                ?.drop(KEEP_SESSIONS - 1)
-                ?.forEach { it.delete() }
-            val file = File(dir, "session-${LocalDateTime.now().format(fileStampFormat)}.log")
+            sessionFiles(context).drop(KEEP_SESSIONS - 1).forEach { it.delete() }
+            // A running number orders sessions correctly even when the box's clock jumps around.
+            val prefs = context.getSharedPreferences("log", Context.MODE_PRIVATE)
+            val seq = prefs.getInt("seq", 0) + 1
+            prefs.edit().putInt("seq", seq).apply()
+            val file = File(dir, "session-%05d-%s.log".format(seq, LocalDateTime.now().format(fileStampFormat)))
             sessionFile = file
             writer = BufferedWriter(FileWriter(file, true))
         }
     }
 
     fun logDir(context: Context): File = File(context.filesDir, "logs")
+
+    private val seqPattern = Regex("""^session-(\d{5})-""")
+
+    /** Session log files, newest first: numbered sessions by number, then older unnumbered ones. */
+    fun sessionFiles(context: Context): List<File> =
+        logDir(context).listFiles { f -> f.name.endsWith(".log") }.orEmpty()
+            .sortedWith(
+                compareByDescending<File> { seqPattern.find(it.name)?.groupValues?.get(1)?.toInt() ?: -1 }
+                    .thenByDescending { it.name },
+            )
 
     fun currentFile(): File? = synchronized(lock) {
         writer?.flush()

@@ -9,11 +9,12 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
 import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.obd.IsoTp.toHex
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,13 +36,15 @@ data class ObdStatus(
     val pairedDevices: List<Pair<String, String>> = emptyList(), // name to address
 )
 
-class ObdViewModel(app: Application) : AndroidViewModel(app) {
-    companion object {
+/**
+ * The one OBD connection for the whole app process. It must never exist twice: two loops fight over
+ * the adapter's single Bluetooth link and knock each other off (seen 2026-11-08 when Android created a
+ * second copy of the home screen). Screens use it through [ObdViewModel].
+ */
+object ObdEngine {
         private const val TAG = "obd"
         private const val PREFS = "obd"
         private const val KEY_ADAPTER = "adapter_address"
-        /** Values older than this are shown as "—". */
-        const val STALE_MS = 5_000L
         /** Re-enter the extended session if the module hasn't been asked anything for this long. */
         private const val SESSION_REFRESH_MS = 3_000L
         /** Full polling cycles with no answer from the car before we stop talking to it. */
@@ -50,9 +53,15 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
         private const val ASLEEP_CHECK_MS = 30_000L
         /** 12 V at or above this means the car's DC-DC converter is charging, i.e. the car is on. */
         private const val CAR_ON_VOLTS = 13.0
+
+    private lateinit var app: Application
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    fun attach(application: Application) {
+        if (!::app.isInitialized) app = application
     }
 
-    private val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val prefs by lazy { app.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     private val _status = MutableStateFlow(ObdStatus())
     val status: StateFlow<ObdStatus> = _status.asStateFlow()
     private val _readings = MutableStateFlow<Map<String, Reading>>(emptyMap())
@@ -62,19 +71,22 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
 
     fun hasPermission(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            getApplication<Application>().checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
+            app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
 
     /** Starts (or restarts) the connect-and-poll loop. Safe to call repeatedly. */
+    @Synchronized
     fun start() {
         if (job?.isActive == true) return
         if (!hasPermission()) {
             _status.value = _status.value.copy(state = LinkState.NeedsPermission, detail = "Bluetooth permission needed")
             return
         }
-        job = viewModelScope.launch(Dispatchers.IO) { runLoop() }
+        AppLog.info(TAG, "Starting the OBD connection loop")
+        job = scope.launch { runLoop() }
     }
 
+    @Synchronized
     fun stop() {
         job?.cancel()
         job = null
@@ -92,7 +104,7 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
 
     @SuppressLint("MissingPermission")
     private fun findAdapter(): BluetoothDevice? {
-        val bt = getApplication<Application>().getSystemService(BluetoothManager::class.java)?.adapter
+        val bt = app.getSystemService(BluetoothManager::class.java)?.adapter
         if (bt == null || !bt.isEnabled) {
             _status.value = _status.value.copy(state = LinkState.BluetoothOff, detail = "Turn on Bluetooth on the box")
             return null
@@ -284,8 +296,22 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
         AppLog.info("value", "${sig.id} = ${reading.value?.let { "%.2f %s".format(it, sig.unit) } ?: "—"} (${reading.raw})")
     }
 
-    override fun onCleared() {
-        job?.cancel()
-        super.onCleared()
+}
+
+/** Screen-side handle to the single [ObdEngine]; creating more of these never starts a second loop. */
+class ObdViewModel(app: Application) : AndroidViewModel(app) {
+    init {
+        ObdEngine.attach(app)
+    }
+
+    val status: StateFlow<ObdStatus> get() = ObdEngine.status
+    val readings: StateFlow<Map<String, Reading>> get() = ObdEngine.readings
+    fun hasPermission(): Boolean = ObdEngine.hasPermission()
+    fun start() = ObdEngine.start()
+    fun stop() = ObdEngine.stop()
+    fun chooseAdapter(address: String) = ObdEngine.chooseAdapter(address)
+
+    companion object {
+        const val STALE_MS = 5_000L
     }
 }
