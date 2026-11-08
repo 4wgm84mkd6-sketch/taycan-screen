@@ -57,6 +57,18 @@
             </intent-filter>
         </activity>
 
+        <!-- Appears as the equalizer in players' menus (Spotify: Settings → Playback → Equalizer). -->
+        <activity
+            android:name=".audio.EqPanelActivity"
+            android:exported="true"
+            android:label="Taycan Screen equalizer"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <receiver
             android:name=".update.InstallResultReceiver"
             android:exported="false" />

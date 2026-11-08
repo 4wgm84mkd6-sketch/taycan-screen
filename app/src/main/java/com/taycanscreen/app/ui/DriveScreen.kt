@@ -141,6 +141,10 @@ fun DriveScreen(
     val context = LocalContext.current
     // Which panel covers the map: null (map), "music" or "audio".
     var panel by remember { mutableStateOf<String?>(null) }
+    val requested by UiEvents.openPanel.collectAsState()
+    LaunchedEffect(requested) {
+        requested?.let { panel = it; UiEvents.openPanel.value = null }
+    }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
         Row(Modifier.fillMaxWidth().weight(1f)) {

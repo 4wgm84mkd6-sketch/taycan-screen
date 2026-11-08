@@ -101,10 +101,15 @@ object EqEngine {
                 true, 10, // pre-EQ with our 10 bands
                 false, 0, // no multiband compressor
                 false, 0, // no post-EQ
-                false, // no limiter (the automatic preamp prevents clipping)
+                true, // limiter: catches peaks so boosts can stay audible
             ).build()
             val dp = DynamicsProcessing(0, session, cfg)
+            dp.setLimiterAllChannelsTo(
+                DynamicsProcessing.Limiter(true, true, 0, 1f, 60f, 10f, -1f, 0f),
+            )
             effects[session] = dp
+            // A real player session is better than the global mix; don't run both.
+            if (session != 0) effects.remove(0)?.let { runCatching { it.release() }; sessionOwners.remove(0); AppLog.info(TAG, "Released the global EQ in favour of $owner") }
             sessionOwners[session] = owner
             apply()
             dp.enabled = true
@@ -164,8 +169,45 @@ object EqEngine {
         return _settings.value.bands.mapIndexed { i, v -> (v + boost * BOOST_WEIGHTS[i]).coerceIn(-12f, 12f) }
     }
 
-    /** Automatic preamp: pull everything down by the highest boost so loud songs don't distort. */
-    fun preampDb(): Float = -max(0f, effectiveBands().maxOrNull() ?: 0f)
+    /**
+     * Automatic preamp: the limiter catches peaks, so only pull down boosts above +3 dB (and by half).
+     * The first version subtracted the whole boost, which made Bass+ mostly sound quieter.
+     */
+    fun preampDb(): Float = -max(0f, ((effectiveBands().maxOrNull() ?: 0f) - 3f) / 2f)
+
+    /** Called when Spotify's Equalizer menu opens our panel with its audio session. */
+    fun attachFromPanel(session: Int, pkg: String) {
+        AppLog.info(TAG, "$pkg opened our equalizer with session $session")
+        if (session > 0) attach(session, pkg)
+    }
+
+    /**
+     * Try to find players' audio sessions without them announcing it, via the playback list Android
+     * keeps. The session id there is a non-public API that may be blocked; the log records the outcome.
+     */
+    fun scanPlayback(context: Context) {
+        try {
+            val am = context.getSystemService(android.media.AudioManager::class.java) ?: return
+            val configs = am.activePlaybackConfigurations
+            val getSession = android.media.AudioPlaybackConfiguration::class.java.getMethod("getSessionId")
+            val getUid = android.media.AudioPlaybackConfiguration::class.java.getMethod("getClientUid")
+            val spotifyUid = runCatching { context.packageManager.getApplicationInfo("com.spotify.music", 0).uid }.getOrNull()
+            configs.forEach { cfg ->
+                val session = getSession.invoke(cfg) as Int
+                val uid = getUid.invoke(cfg) as Int
+                if (session > 0 && uid == spotifyUid && !effects.containsKey(session)) {
+                    AppLog.info(TAG, "Found Spotify's audio session $session in the playback list")
+                    attach(session, "com.spotify.music")
+                }
+            }
+        } catch (e: Throwable) {
+            if (!scanFailedLogged) {
+                scanFailedLogged = true
+                AppLog.warn(TAG, "Can't read sessions from the playback list: ${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+    }
+    private var scanFailedLogged = false
 
     private fun apply() {
         if (effects.isEmpty()) return

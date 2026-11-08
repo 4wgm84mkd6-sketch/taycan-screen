@@ -256,6 +256,8 @@ private fun MainScreen(
     onOpenInstallSetting: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf("drive") }
+    val panelRequest by com.taycanscreen.app.ui.UiEvents.openPanel.collectAsState()
+    LaunchedEffect(panelRequest) { if (panelRequest != null) tab = "drive" }
     var minuteTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {

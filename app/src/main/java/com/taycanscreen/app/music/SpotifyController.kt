@@ -54,6 +54,13 @@ object SpotifyController {
     private var artUri: String? = null
     private val handler = Handler(Looper.getMainLooper())
     private val thumbs = LruCache<String, Bitmap>(80)
+    private val retry = Runnable { connect(showAuth = false) }
+
+    /** One pending reconnect at a time (several overlapping retry chains were piling up). */
+    private fun scheduleRetry(ms: Long) {
+        handler.removeCallbacks(retry)
+        handler.postDelayed(retry, ms)
+    }
 
     val configured: Boolean get() = BuildConfig.SPOTIFY_CLIENT_ID.isNotBlank()
 
@@ -126,9 +133,7 @@ object SpotifyController {
                     else -> Status(Link.Failed, "Couldn't reach Spotify ($name)")
                 }
                 // Authorization needs the owner's tap; everything else retries by itself.
-                if (_status.value.link != Link.NeedsAuthorization) {
-                    handler.postDelayed({ connect(showAuth = false) }, RETRY_MS)
-                }
+                if (_status.value.link != Link.NeedsAuthorization) scheduleRetry(RETRY_MS)
             }
         })
     }
@@ -138,7 +143,10 @@ object SpotifyController {
             .setEventCallback { ps ->
                 val t = ps.track
                 // If Spotify plays but never announced its audio session, fall back to the global EQ.
-                if (!ps.isPaused) handler.postDelayed({ com.taycanscreen.app.audio.EqEngine.tryGlobal() }, 15_000L)
+                if (!ps.isPaused) {
+                    com.taycanscreen.app.audio.EqEngine.scanPlayback(appContext)
+                    handler.postDelayed({ com.taycanscreen.app.audio.EqEngine.tryGlobal() }, 15_000L)
+                }
                 _nowPlaying.value = if (t == null) null else NowPlaying(
                     title = t.name ?: "",
                     artist = t.artist?.name ?: t.artists?.joinToString { it.name } ?: "",
@@ -163,7 +171,7 @@ object SpotifyController {
                 AppLog.warn(TAG, "Spotify player updates stopped: ${e.message}; reconnecting")
                 remote = null
                 _status.value = Status(Link.Failed, "Spotify disconnected")
-                handler.postDelayed({ connect(showAuth = false) }, 3_000L)
+                scheduleRetry(3_000L)
             }
     }
 
