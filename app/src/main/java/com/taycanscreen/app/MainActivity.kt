@@ -62,6 +62,9 @@ import com.taycanscreen.app.log.LogSharer
 import com.taycanscreen.app.log.GitHubAuth
 import com.taycanscreen.app.log.LogUploader
 import com.taycanscreen.app.music.SpotifyController
+import com.spotify.sdk.android.auth.AuthorizationClient
+import com.spotify.sdk.android.auth.AuthorizationRequest
+import com.spotify.sdk.android.auth.AuthorizationResponse
 import com.taycanscreen.app.obd.Discovery
 import com.taycanscreen.app.obd.LinkState
 import com.taycanscreen.app.obd.ObdViewModel
@@ -96,6 +99,31 @@ class MainActivity : ComponentActivity() {
         AppLog.info("app", "Permission answers: $result")
         refreshLocation()
         if (obd.hasPermission()) obd.start()
+    }
+
+    /** Spotify's one-time "allow Taycan Screen" screen (Spotify Auth library). */
+    private val spotifyAuth = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val response = AuthorizationClient.getResponse(result.resultCode, result.data)
+        when (response.type) {
+            AuthorizationResponse.Type.TOKEN, AuthorizationResponse.Type.CODE -> SpotifyController.onAuthorizationResult(null)
+            AuthorizationResponse.Type.ERROR -> SpotifyController.onAuthorizationResult(response.error ?: "unknown error")
+            else -> SpotifyController.onAuthorizationResult("cancelled")
+        }
+    }
+
+    private fun openSpotifyAuthorization() {
+        val request = AuthorizationRequest.Builder(
+            BuildConfig.SPOTIFY_CLIENT_ID,
+            AuthorizationResponse.Type.TOKEN,
+            BuildConfig.SPOTIFY_REDIRECT_URI,
+        ).setScopes(arrayOf("app-remote-control", "user-read-playback-state", "user-modify-playback-state", "playlist-read-private", "user-library-read"))
+            .build()
+        try {
+            spotifyAuth.launch(AuthorizationClient.createLoginActivityIntent(this, request))
+        } catch (e: Exception) {
+            AppLog.error("spotify", "Couldn't open Spotify authorization", e)
+            SpotifyController.onAuthorizationResult(e.message ?: "couldn't open")
+        }
     }
 
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
@@ -172,6 +200,7 @@ class MainActivity : ComponentActivity() {
         super.onPostCreate(savedInstanceState)
         // Start reading the car straight away when the app opens.
         requestBluetooth()
+        SpotifyController.authorizationLauncher = { openSpotifyAuthorization() }
         SpotifyController.start(this)
     }
 

@@ -119,7 +119,18 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
         when {
             status.link != SpotifyController.Link.Connected -> {
                 Text(status.detail.ifBlank { "Connecting to Spotify…" }, color = c.textDim, fontSize = 17.sp)
-                if (status.link == SpotifyController.Link.Failed) {
+                when (status.link) {
+                    SpotifyController.Link.NeedsAuthorization -> Text(
+                        "Allow in Spotify", color = c.accent, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { SpotifyController.requestAuthorization() }.padding(12.dp),
+                    )
+                    SpotifyController.Link.NeedsSignIn -> Text(
+                        "Open Spotify to sign in", color = c.accent, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onOpenSpotifyApp).padding(12.dp),
+                    )
+                    else -> Unit
+                }
+                if (status.link == SpotifyController.Link.Failed || status.link == SpotifyController.Link.NeedsSignIn) {
                     Text(
                         "Try again", color = c.accent, fontSize = 17.sp,
                         modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { SpotifyController.retryNow() }.padding(10.dp),

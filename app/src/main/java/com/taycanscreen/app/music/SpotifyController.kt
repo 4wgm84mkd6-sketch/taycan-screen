@@ -27,7 +27,7 @@ object SpotifyController {
     private const val TAG = "spotify"
     private const val RETRY_MS = 15_000L
 
-    enum class Link { NotSetUp, NotInstalled, Connecting, Connected, Failed }
+    enum class Link { NotSetUp, NotInstalled, NeedsSignIn, NeedsAuthorization, Connecting, Connected, Failed }
     data class Status(val link: Link, val detail: String = "")
 
     data class NowPlaying(
@@ -63,6 +63,25 @@ object SpotifyController {
         connect(showAuth = true)
     }
 
+    /** Set by the activity: opens Spotify's own "allow Taycan Screen" screen. */
+    var authorizationLauncher: (() -> Unit)? = null
+
+    fun requestAuthorization() {
+        AppLog.info(TAG, "Opening Spotify authorization")
+        authorizationLauncher?.invoke()
+    }
+
+    /** Result of Spotify's authorization screen ([error] null = allowed). */
+    fun onAuthorizationResult(error: String?) {
+        if (error == null) {
+            AppLog.info(TAG, "Spotify authorization granted")
+            connect(showAuth = false)
+        } else {
+            AppLog.warn(TAG, "Spotify authorization failed: $error")
+            _status.value = Status(Link.NeedsAuthorization, "Spotify said: $error")
+        }
+    }
+
     fun retryNow() {
         if (::appContext.isInitialized) connect(showAuth = true)
     }
@@ -95,9 +114,21 @@ object SpotifyController {
             override fun onFailure(error: Throwable) {
                 connecting = false
                 remote = null
-                AppLog.warn(TAG, "Spotify connect failed: ${error.javaClass.simpleName}: ${error.message}")
-                _status.value = Status(Link.Failed, error.message ?: error.javaClass.simpleName)
-                handler.postDelayed({ connect(showAuth = false) }, RETRY_MS)
+                val name = error.javaClass.simpleName
+                AppLog.warn(TAG, "Spotify connect failed: $name: ${error.message}")
+                val msg = (error.message ?: "").lowercase()
+                _status.value = when {
+                    name == "NotLoggedInException" || "log-in" in msg || "logged in" in msg ->
+                        Status(Link.NeedsSignIn, "Open the Spotify app on the box and sign in")
+                    name == "UserNotAuthorizedException" || "authorization" in msg ->
+                        Status(Link.NeedsAuthorization, "Tap Allow to let Taycan Screen use Spotify")
+                    name == "CouldNotFindSpotifyApp" -> Status(Link.NotInstalled, "Install Spotify on the box and sign in")
+                    else -> Status(Link.Failed, "Couldn't reach Spotify ($name)")
+                }
+                // Authorization needs the owner's tap; everything else retries by itself.
+                if (_status.value.link != Link.NeedsAuthorization) {
+                    handler.postDelayed({ connect(showAuth = false) }, RETRY_MS)
+                }
             }
         })
     }

@@ -34,6 +34,9 @@ android {
         buildConfigField("String", "LOG_CLIENT_ID", "\"$logClientId\"")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
         buildConfigField("String", "SPOTIFY_REDIRECT_URI", "\"taycanscreen://spotify-callback\"")
+        // Spotify Auth library: redirect URI taycanscreen://spotify-callback (must match the dashboard).
+        manifestPlaceholders["redirectSchemeName"] = "taycanscreen"
+        manifestPlaceholders["redirectHostName"] = "spotify-callback"
     }
 
     signingConfigs {
@@ -89,5 +92,7 @@ dependencies {
     // Spotify App Remote SDK 0.8.0 (github.com/spotify/android-sdk, Apache 2.0; see libs/SPOTIFY-SDK-*).
     implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
     implementation("com.google.code.gson:gson:2.11.0")
+    // Spotify Auth library: the one-time "allow Taycan Screen" screen (Apache 2.0).
+    implementation("com.spotify.android:auth:2.1.0")
     testImplementation("junit:junit:4.13.2")
 }
