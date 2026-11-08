@@ -8,6 +8,7 @@ class TaycanApp : Application() {
         super.onCreate()
         AppLog.init(this)
         com.taycanscreen.app.audio.EqEngine.init(this)
+        com.taycanscreen.app.music.SpotifyWeb.init(this)
         AppLog.info(
             "app",
             "Started Taycan Screen build ${BuildConfig.VERSION_CODE} (${BuildConfig.VERSION_NAME}), " +

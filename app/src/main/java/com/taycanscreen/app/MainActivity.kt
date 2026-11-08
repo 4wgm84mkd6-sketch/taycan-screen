@@ -105,7 +105,11 @@ class MainActivity : ComponentActivity() {
     private val spotifyAuth = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val response = AuthorizationClient.getResponse(result.resultCode, result.data)
         when (response.type) {
-            AuthorizationResponse.Type.TOKEN, AuthorizationResponse.Type.CODE -> SpotifyController.onAuthorizationResult(null)
+            AuthorizationResponse.Type.TOKEN -> {
+                response.accessToken?.let { com.taycanscreen.app.music.SpotifyWeb.setToken(it, response.expiresIn) }
+                SpotifyController.onAuthorizationResult(null)
+            }
+            AuthorizationResponse.Type.CODE -> SpotifyController.onAuthorizationResult(null)
             AuthorizationResponse.Type.ERROR -> SpotifyController.onAuthorizationResult(response.error ?: "unknown error")
             else -> SpotifyController.onAuthorizationResult("cancelled")
         }

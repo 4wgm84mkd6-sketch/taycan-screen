@@ -220,6 +220,23 @@ object SpotifyController {
                 .setErrorCallback { onError(it.message ?: "Couldn't load ${item.title}") }
         }
 
+    /** Plays a song/episode (inside its playlist/album when known) or a whole playlist/album/show/artist. */
+    fun play(item: MusicItem) = withRemote("play ${item.title}") { r ->
+        AppLog.info(TAG, "Play ${item.title} (${item.uri}${item.contextUri?.let { " in $it #${item.indexInContext}" } ?: ""})")
+        val call = when {
+            item.contextUri != null && item.indexInContext != null -> r.playerApi.skipToIndex(item.contextUri, item.indexInContext)
+            item.listItem != null && item.kind == MusicItem.Kind.Category -> r.contentApi.playContentItem(item.listItem)
+            else -> r.playerApi.play(item.uri)
+        }
+        call.setErrorCallback { AppLog.warn(TAG, "Play failed: ${it.message}") }
+    }
+
+    /** Children through the in-app connection (Spotify's own browse tree). */
+    fun browseChildren(item: MusicItem, onResult: (List<MusicItem>) -> Unit, onError: (String) -> Unit) {
+        val li = item.listItem ?: return onResult(emptyList())
+        browseChildren(li, { list -> onResult(list.map { MusicItem.from(it) }) }, onError)
+    }
+
     fun play(item: ListItem) = withRemote("play ${item.title}") { r ->
         AppLog.info(TAG, "Play ${item.title} (${item.uri})")
         r.contentApi.playContentItem(item)
