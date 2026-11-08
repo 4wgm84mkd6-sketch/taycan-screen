@@ -3,6 +3,7 @@ package com.taycanscreen.app.ui
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -134,8 +135,20 @@ fun BoxPanel(modifier: Modifier = Modifier) {
             }
         }
         items(apps, key = { it.pkg }) { a ->
+            val cleanupItem = BoxHealth.CLEANUP.firstOrNull { it.pkg == a.pkg }
+            val toDo = cleanupItem != null && !(cleanupItem.action == BoxHealth.Action.Disable && !a.enabled)
+            val keep = a.pkg in BoxHealth.KEEP
+            // Orange = on the approved cleanup list and still to do; green = needed / keep.
+            val tint = when {
+                toDo -> Palette.Warn
+                keep -> Palette.Accent
+                else -> null
+            }
             Row(
-                Modifier.fillMaxWidth().background(Palette.Surface, RoundedCornerShape(10.dp)).padding(10.dp),
+                Modifier.fillMaxWidth()
+                    .background(tint?.copy(alpha = 0.16f) ?: Palette.Surface, RoundedCornerShape(10.dp))
+                    .then(if (tint != null) Modifier.border(2.dp, tint, RoundedCornerShape(10.dp)) else Modifier)
+                    .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -143,6 +156,12 @@ fun BoxPanel(modifier: Modifier = Modifier) {
                     Text(a.label, color = if (a.enabled) Palette.Text else Palette.TextDim, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     Text(a.pkg, color = Palette.TextDim, fontSize = 12.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
                     val tags = listOfNotNull(
+                        when {
+                            toDo -> if (cleanupItem?.action == BoxHealth.Action.Uninstall) "REMOVE" else "DISABLE"
+                            cleanupItem != null -> "✓ disabled"
+                            keep -> "KEEP"
+                            else -> null
+                        },
                         if (a.preinstalled) "preinstalled" else "added later",
                         if (!a.enabled) "disabled" else null,
                         if (a.startsAtBoot) "starts at boot" else null,

@@ -360,7 +360,7 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
     val headingUp = rememberUpdatedState(!northUp)
     val locationOverlay = remember(locationGranted) {
         if (!locationGranted) null
-        else CarLocationOverlay(locationProvider(context), mapView, { headingUp.value }) { gps = it }.apply {
+        else CarLocationOverlay(locationProvider(context), mapView, { headingUp.value }, ::carSpeedKmh) { gps = it }.apply {
             val arrow = carArrowBitmap(context)
             setPersonIcon(arrow)
             setPersonAnchor(0.5f, 0.5f)
@@ -602,17 +602,46 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
 }
 
 /** Follows the car and, in heading-up mode, turns the map so the direction of travel points up. */
+/** The car's speed from OBD (km/h), if fresh. */
+private fun carSpeedKmh(): Double? {
+    val r = com.taycanscreen.app.obd.ObdEngine.readings.value[Taycan.SPEED.id] ?: return null
+    return r.value?.takeIf { System.currentTimeMillis() - r.at < Taycan.SPEED.staleMs }
+}
+
 private class CarLocationOverlay(
     provider: GpsMyLocationProvider,
     private val map: MapView,
     private val headingUp: () -> Boolean,
+    private val carSpeedKmh: () -> Double?,
     private val onStatus: (String) -> Unit,
 ) : MyLocationNewOverlay(provider, map) {
     private var lastLogAt = 0L
+    private var lastPoint: Location? = null
+    private var lastBearing: Float? = null
+    private var lastBearingSource = ""
 
     override fun onLocationChanged(location: Location?, source: IMyLocationProvider?) {
+        if (location == null) {
+            super.onLocationChanged(location, source)
+            return
+        }
+        // Direction of travel. The car's GPS (passed through the box) may come without a bearing or
+        // speed, so fall back to the direction between fixes, and use the car's own speed (OBD).
+        val obd = carSpeedKmh()
+        val moving = (location.hasSpeed() && location.speed > 1.5f) || (obd != null && obd > 5.0)
+        val prev = lastPoint
+        val gpsBearing = if (location.hasBearing() && (location.bearing != 0f || location.hasSpeed())) location.bearing else null
+        val bearing: Float? = when {
+            !moving -> null
+            gpsBearing != null -> gpsBearing.also { lastBearingSource = "GPS" }
+            prev != null && prev.distanceTo(location) >= 6f -> ((prev.bearingTo(location) + 360f) % 360f).also { lastBearingSource = "between fixes" }
+            else -> null
+        }
+        if (prev == null || prev.distanceTo(location) >= 6f || !moving) lastPoint = Location(location)
+        if (bearing != null) lastBearing = bearing
+        // Let the arrow point the right way too (osmdroid draws it from the location's bearing).
+        lastBearing?.let { location.bearing = it }
         super.onLocationChanged(location, source)
-        location ?: return
         Sun.latitude = location.latitude
         Sun.longitude = location.longitude
         val status = "GPS ±%d m · %s".format(location.accuracy.roundToInt(), location.provider ?: "?")
@@ -623,12 +652,12 @@ private class CarLocationOverlay(
             AppLog.info(
                 "map",
                 "Fix from ${location.provider}: ±${location.accuracy.roundToInt()} m, " +
-                    "${"%.1f".format(location.speed * 2.23694)} mph, bearing ${if (location.hasBearing()) location.bearing.roundToInt() else -1}",
+                    "${"%.1f".format(location.speed * 2.23694)} mph (car ${obd?.let { "%.0f".format(it * 0.621371) } ?: "?"} mph), " +
+                    "bearing ${lastBearing?.roundToInt() ?: -1} from ${lastBearingSource.ifBlank { "none yet" }}",
             )
         }
-        // GPS bearing is only meaningful while moving; keep the last orientation when stopped.
-        if (headingUp() && location.hasBearing() && location.speed > 1.5f) {
-            val bearing = location.bearing
+        // Keep the last orientation when stopped.
+        if (headingUp() && moving && bearing != null) {
             map.post { map.mapOrientation = -bearing }
         }
     }

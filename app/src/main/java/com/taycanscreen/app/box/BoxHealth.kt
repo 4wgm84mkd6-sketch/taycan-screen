@@ -125,6 +125,15 @@ object BoxHealth {
         CleanupItem("com.sd.ball", "FloatingBall", Action.Disable, "always running floating button"),
     )
 
+    /** Apps the box needs, or the owner chose to keep (shown in green). */
+    val KEEP = setOf(
+        "com.carsyso.main", "com.suding.speedplay", "com.carsyso.bluetooth", "com.suding.onstepbtmusic",
+        "com.ds.backcar", "com.suding.led", "carnetos.usbmedia", "com.suding.settings", "com.suding.ota",
+        "com.abupdate.fota_demo_iot", "com.sd.factoryconfig", "com.suding.apkinstaller", "net.easyconn",
+        "com.spotify.music", "com.waze", "com.google.android.apps.youtube.music", "com.taycanscreen.app",
+        "com.chartcross.gpstestplus", "com.ublox.ucenter",
+    )
+
     enum class CleanupState { Pending, Done, Gone }
 
     /** Done = disabled (for Disable) / Gone = no longer installed. */
