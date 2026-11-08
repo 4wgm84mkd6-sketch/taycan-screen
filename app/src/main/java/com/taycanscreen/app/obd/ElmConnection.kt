@@ -67,10 +67,27 @@ class ElmConnection private constructor(
         AppLog.tx(TAG, "$c\r")
         output.write("$c\r".toByteArray(Charsets.ISO_8859_1))
         output.flush()
-        val reply = readUntilPrompt(timeoutMs)
+        val reply = try {
+            readUntilPrompt(timeoutMs)
+        } catch (slow: PromptTimeout) {
+            // The adapter is still waiting on the car (e.g. a module answered 7F 22 78 "response
+            // pending" and never finished). That's not a dead link: interrupt it and carry on with
+            // whatever arrived. A CR stops the current request; if the adapter was actually idle it
+            // repeats the last command, which already passed the allowlist above.
+            AppLog.warn(TAG, "No prompt after $timeoutMs ms; interrupting the adapter")
+            AppLog.tx(TAG, "\r")
+            output.write("\r".toByteArray(Charsets.ISO_8859_1))
+            output.flush()
+            val rest = readUntilPrompt(2_000) // still nothing: the link really is gone
+            AppLog.rx(TAG, rest + ">")
+            slow.partial + "\r" + rest
+        }
         AppLog.rx(TAG, reply + ">")
         return reply
     }
+
+    /** No '>' prompt in time; [partial] is what arrived before giving up. */
+    class PromptTimeout(val partial: String, timeoutMs: Long) : IOException("No prompt from adapter within $timeoutMs ms")
 
     private fun readUntilPrompt(timeoutMs: Long): String {
         val sb = StringBuilder()
@@ -91,7 +108,7 @@ class ElmConnection private constructor(
             }
         }
         AppLog.rx(TAG, "(timeout after ${timeoutMs} ms) $sb")
-        throw IOException("No prompt from adapter within $timeoutMs ms")
+        throw PromptTimeout(sb.toString(), timeoutMs)
     }
 
     fun close() {

@@ -75,6 +75,7 @@ object ObdEngine {
     @Volatile private var discoveryRequest: Discovery.Request? = null
     @Volatile private var discoveryCancel = false
     @Volatile private var scanAutoResumes = 0
+    @Volatile private var scanPosition: Pair<String, Int>? = null
 
     fun refreshDiscovery(force: Boolean = false) {
         val found = Discovery.loadFound(app)
@@ -238,6 +239,12 @@ object ObdEngine {
                 } catch (e: java.io.IOException) {
                     // Link dropped mid-scan: carry on automatically after reconnecting (a few times at most).
                     if (req != Discovery.Request.Scan && req != Discovery.Request.RestartScan) throw e
+                    // Skip the identifier that was being read, so a module that stalls on it can't
+                    // knock the scan over again and again.
+                    scanPosition?.let { (hdr, did) ->
+                        Discovery.savePartial(app, hdr, did + 1)
+                        AppLog.warn("disc", "Skipping $hdr 22%04X after the link dropped on it".format(did))
+                    }
                     if (scanAutoResumes++ < 5) {
                         AppLog.warn("disc", "Scan interrupted (${e.message}); will continue after reconnecting")
                         discoveryRequest = Discovery.Request.Scan
@@ -325,6 +332,7 @@ object ObdEngine {
                     if (resuming) AppLog.info("disc", "Resuming ${m.name} at 22%04X".format(start))
                     for (did in start..m.dids.last) {
                         if (discoveryCancel || !currentCoroutineContext().isActive) break
+                        scanPosition = m.hdr to did
                         Discovery.read(c, m, did)?.let { data ->
                             hits.add(did)
                             Discovery.logFound(m, did, data)
