@@ -128,9 +128,16 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
                 throw e
             } catch (e: Exception) {
                 AppLog.error(TAG, "Link dropped", e)
+                val couldntConnect = _status.value.state == LinkState.Connecting
                 _status.value = _status.value.copy(
                     state = LinkState.Retrying,
-                    detail = "Lost connection (${e.message}); retrying in ${backoffMs / 1000} s",
+                    detail = if (couldntConnect) {
+                        // Bluetooth connect refused: almost always the adapter is busy or asleep.
+                        "Can't reach the OBDLink. Close Car Scanner on your iPhone (or turn its Bluetooth off) " +
+                            "and switch the car on. Retrying in ${backoffMs / 1000} s"
+                    } else {
+                        "Lost connection (${e.message}); retrying in ${backoffMs / 1000} s"
+                    },
                 )
             } finally {
                 conn?.close()
