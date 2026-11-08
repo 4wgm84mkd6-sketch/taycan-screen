@@ -154,7 +154,20 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
                     onError = { error = it; loading = false },
                 )
             }
-            item.opens -> web(item.title) { SpotifyWeb.contents(item) }
+            // Containers: ask the Spotify app first (it can list Spotify-made playlists); Web API as backup.
+            item.opens -> {
+                loading = true
+                error = null
+                SpotifyController.listViaApp(
+                    item,
+                    onResult = { list ->
+                        loading = false
+                        if (list.isNotEmpty()) stack.add(item.title to list)
+                        else web(item.title) { SpotifyWeb.contents(item) }
+                    },
+                    onError = { loading = false; web(item.title) { SpotifyWeb.contents(item) } },
+                )
+            }
             else -> SpotifyController.play(item)
         }
     }

@@ -32,13 +32,45 @@ object EqEngine {
     private val BOOST_WEIGHTS = floatArrayOf(1f, 1f, 0.9f, 0.7f, 0.5f, 0.4f, 0.2f, 0f, 0f, 0f)
 
     data class Preset(val id: String, val label: String, val bands: List<Float>?)
+    /** Built-in presets (bands 31 Hz … 16 kHz). The first four are from the design. */
     val PRESETS = listOf(
         Preset("flat", "Flat", List(10) { 0f }),
-        Preset("vocal", "Vocal", listOf(-2f, -1.5f, -1f, 0f, 1.5f, 3f, 3f, 2f, 0.5f, 0f)),
-        Preset("bass", "Bass+", listOf(5f, 4.5f, 3.5f, 2f, 0.5f, 0f, 0f, 0f, 0.5f, 1f)),
         Preset("night", "Night drive", listOf(2f, 1.5f, 1f, 0f, 0.5f, 1.5f, 2f, 1f, -1f, -2f)),
-        Preset("custom", "Custom", null),
+        Preset("bass", "Bass+", listOf(5f, 4.5f, 3.5f, 2f, 0.5f, 0f, 0f, 0f, 0.5f, 1f)),
+        Preset("treble", "Treble+", listOf(0f, 0f, 0f, 0f, 0f, 0.5f, 1.5f, 3f, 4.5f, 5f)),
+        Preset("vocal", "Vocal", listOf(-2f, -1.5f, -1f, 0f, 1.5f, 3f, 3f, 2f, 0.5f, 0f)),
+        Preset("spoken", "Podcast", listOf(-3f, -2f, -1f, 0f, 2f, 4f, 4f, 2.5f, 0f, -1f)),
+        Preset("rock", "Rock", listOf(4f, 3.5f, 2.5f, 1f, -0.5f, -1f, 0.5f, 2f, 3f, 3.5f)),
+        Preset("pop", "Pop", listOf(-1f, -0.5f, 0.5f, 2f, 3f, 3f, 2f, 0.5f, -0.5f, -1f)),
+        Preset("hiphop", "Hip-hop", listOf(5f, 4.5f, 3f, 1.5f, 0f, -0.5f, 0.5f, 0f, 1f, 1.5f)),
+        Preset("electronic", "Electronic", listOf(5f, 4f, 2f, 0f, -1.5f, 0f, 1f, 2.5f, 4f, 4.5f)),
+        Preset("jazz", "Jazz", listOf(3f, 2f, 1f, 1.5f, -1f, -1f, 0f, 1f, 2f, 3f)),
+        Preset("classical", "Classical", listOf(2.5f, 2f, 1.5f, 1f, 0f, 0f, 0f, 1f, 2f, 2.5f)),
+        Preset("loudness", "Loudness", listOf(5f, 4f, 2.5f, 0f, -1f, -1f, 0f, 1.5f, 3.5f, 4.5f)),
     )
+    const val USER_SLOTS = 3
+
+    private val _userPresets = MutableStateFlow<List<Preset>>(emptyList())
+    /** The owner's saved EQs ("My EQ 1…3"); bands null = empty slot. */
+    val userPresets: StateFlow<List<Preset>> = _userPresets.asStateFlow()
+
+    /** Saves the current bands into slot 1…3. */
+    fun saveUser(slot: Int) {
+        val bands = _settings.value.bands
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("user$slot", bands.joinToString(",")).apply()
+        loadUser()
+        _settings.value = _settings.value.copy(preset = "user$slot")
+        save()
+        AppLog.info(TAG, "Saved My EQ $slot: ${bands.joinToString(" ")}")
+    }
+
+    private fun loadUser() {
+        val p = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        _userPresets.value = (1..USER_SLOTS).map { i ->
+            Preset("user$i", "My EQ $i", p.getString("user$i", null)?.split(',')?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 10 })
+        }
+    }
 
     data class Settings(val bands: List<Float>, val preset: String, val adaptive: Boolean)
     data class Status(val attachedTo: String?, val detail: String)
@@ -143,8 +175,9 @@ object EqEngine {
     }
 
     fun pickPreset(id: String) {
-        val p = PRESETS.firstOrNull { it.id == id } ?: return
-        _settings.value = _settings.value.copy(bands = p.bands ?: _settings.value.bands, preset = id)
+        val p = (PRESETS + _userPresets.value).firstOrNull { it.id == id } ?: return
+        val bands = p.bands ?: return // empty saved slot
+        _settings.value = _settings.value.copy(bands = bands, preset = id)
         AppLog.info(TAG, "Preset ${p.label}")
         save(); apply()
     }
@@ -233,6 +266,7 @@ object EqEngine {
     }
 
     private fun load() {
+        loadUser()
         val p = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val bands = p.getString("bands", null)?.split(',')?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 10 }
         if (bands != null) {

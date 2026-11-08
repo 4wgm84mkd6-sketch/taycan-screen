@@ -25,6 +25,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,24 +78,37 @@ fun AudioPanel(c: DriveColors, onClose: () -> Unit, modifier: Modifier = Modifie
                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClose).padding(10.dp),
             )
         }
+        val user by EqEngine.userPresets.collectAsState()
+        var saving by remember { mutableStateOf(false) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EqEngine.PRESETS.forEach { p ->
-                val on = settings.preset == p.id
-                Text(
-                    p.label,
-                    color = if (on) c.panel else c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clip(RoundedCornerShape(22.dp))
-                        .background(if (on) c.text else c.panel)
-                        .border(1.dp, if (on) c.text else c.border, RoundedCornerShape(22.dp))
-                        .clickable { EqEngine.pickPreset(p.id) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                )
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                (EqEngine.PRESETS + user.filter { it.bands != null }).forEach { p ->
+                    Chip(p.label, settings.preset == p.id, c) { EqEngine.pickPreset(p.id) }
+                }
+                if (settings.preset == "custom") Chip("Custom", true, c) {}
             }
-            Box(Modifier.weight(1f))
+            Text(
+                if (saving) "Cancel" else "Save…", color = c.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { saving = !saving }.padding(10.dp),
+            )
             Text(
                 "Reset to flat", color = c.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { EqEngine.pickPreset("flat") }.padding(10.dp),
             )
+        }
+        if (saving) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Save the current EQ as:", color = c.text, fontSize = 15.sp)
+                user.forEachIndexed { i, p ->
+                    Chip(p.label + if (p.bands == null) " (empty)" else " (replace)", false, c) {
+                        EqEngine.saveUser(i + 1)
+                        saving = false
+                    }
+                }
+            }
         }
         Column(
             Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(18.dp)).background(c.panel).padding(horizontal = 16.dp, vertical = 10.dp),
@@ -172,6 +190,19 @@ private fun BandSlider(value: Float, c: DriveColors, modifier: Modifier, onChang
                 .border(2.dp, c.accent, CircleShape),
         )
     }
+}
+
+@Composable
+private fun Chip(label: String, on: Boolean, c: DriveColors, onClick: () -> Unit) {
+    Text(
+        label,
+        color = if (on) c.panel else c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(22.dp))
+            .background(if (on) c.text else c.panel)
+            .border(1.dp, if (on) c.text else c.border, RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    )
 }
 
 @Composable

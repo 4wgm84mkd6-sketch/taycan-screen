@@ -225,10 +225,21 @@ object SpotifyController {
         AppLog.info(TAG, "Play ${item.title} (${item.uri}${item.contextUri?.let { " in $it #${item.indexInContext}" } ?: ""})")
         val call = when {
             item.contextUri != null && item.indexInContext != null -> r.playerApi.skipToIndex(item.contextUri, item.indexInContext)
-            item.listItem != null && item.kind == MusicItem.Kind.Category -> r.contentApi.playContentItem(item.listItem)
+            // Items that came from the Spotify app's own lists play there, keeping their playlist/album.
+            item.listItem != null && item.kind != MusicItem.Kind.Playlist && item.kind != MusicItem.Kind.Album &&
+                item.kind != MusicItem.Kind.Show && item.kind != MusicItem.Kind.Artist -> r.contentApi.playContentItem(item.listItem)
             else -> r.playerApi.play(item.uri)
         }
         call.setErrorCallback { AppLog.warn(TAG, "Play failed: ${it.message}") }
+    }
+
+    /**
+     * Lists a playlist/album/show through the Spotify app on the box (not the Web API, which refuses
+     * Spotify-made playlists). Builds a browse item for any URI; the app may or may not answer.
+     */
+    fun listViaApp(item: MusicItem, onResult: (List<MusicItem>) -> Unit, onError: (String) -> Unit) {
+        val li = item.listItem ?: ListItem(item.uri, item.uri, item.imageUri, item.title, item.subtitle, true, true)
+        browseChildren(li, { list -> onResult(list.map { MusicItem.from(it) }) }, onError)
     }
 
     /** Children through the in-app connection (Spotify's own browse tree). */
