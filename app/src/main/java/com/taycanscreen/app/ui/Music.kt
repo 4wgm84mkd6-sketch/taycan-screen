@@ -108,6 +108,17 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
     var query by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
 
+    /** Turns technical errors into something readable in the car. */
+    fun friendly(msg: String?): String {
+        val m = msg ?: ""
+        return when {
+            "UnknownHost" in m || "Unable to resolve host" in m || "ConnectException" in m || "SocketTimeout" in m || "timeout" in m.lowercase() ->
+                "No internet right now (garage or weak signal?). Browsing and search need a connection; what's playing keeps playing."
+            m.isBlank() -> "Couldn't load"
+            else -> m.trim('"')
+        }
+    }
+
     /** Runs a Web API call; if the sign-in needs renewing, renews it and retries once it's back. */
     fun web(title: String, call: suspend () -> List<MusicItem>) {
         loading = true
@@ -122,7 +133,7 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
                 error = "Renewing Spotify sign-in…"
                 SpotifyController.requestAuthorization()
             } catch (e: Exception) {
-                error = e.message ?: "Couldn't load"
+                error = friendly(e.message)
             } finally {
                 loading = false
             }
@@ -135,7 +146,7 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
         error = null
         SpotifyController.browseRoot(
             onResult = { list -> stack.clear(); stack.add("Spotify" to list.map { MusicItem.from(it) }); loading = false },
-            onError = { error = it; loading = false },
+            onError = { error = friendly(it); loading = false },
         )
     }
     LaunchedEffect(status.link, view) {
@@ -151,7 +162,7 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
                 SpotifyController.browseChildren(
                     item,
                     onResult = { stack.add(item.title to it); loading = false },
-                    onError = { error = it; loading = false },
+                    onError = { error = friendly(it); loading = false },
                 )
             }
             // Containers: ask the Spotify app first (it can list Spotify-made playlists); Web API as backup.
@@ -221,7 +232,15 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
             view == "now" -> NowPlayingView(c, Modifier.fillMaxSize())
             else -> {
                 if (loading) Text("Loading…", color = c.textDim, fontSize = 15.sp)
-                error?.let { Text(it, color = if (it.startsWith("Renewing")) c.textDim else c.danger, fontSize = 15.sp) }
+                error?.let {
+                    Text(it, color = if (it.startsWith("Renewing")) c.textDim else c.danger, fontSize = 15.sp)
+                    if (stack.isEmpty() && !loading) {
+                        Text(
+                            "Try again", color = c.accent, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { loadRoot() }.padding(10.dp),
+                        )
+                    }
+                }
                 LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(stack.lastOrNull()?.second.orEmpty()) { item ->
                         BrowseRow(item, c, onOpen = { open(item) }, onPlay = { SpotifyController.play(item) })
