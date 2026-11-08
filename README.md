@@ -24,7 +24,7 @@ signing in to GitHub. Nothing secret lives in the code in readable form.
 Every build is signed with the same release key, so updates install over the existing app.
 The keystore is committed encrypted (AES-256) at `signing/release.jks.enc`; the workflow decrypts
 it with the repository secret `SIGNING_PASSWORD`, which is also the keystore and key password
-(key alias `taycan`). Without the secret the workflow builds nothing.
+(key alias `taycan`). Without the secret the workflow only checks that the code compiles (unsigned, no release).
 
 If the password is ever lost, a new key can be made, but the app then has to be uninstalled once
 and installed fresh from the browser (Android refuses an update signed with a different key).

@@ -42,7 +42,7 @@ jobs:
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           if [ -z "$SIGNING_PASSWORD" ]; then
-            echo "::warning::Repository secret SIGNING_PASSWORD is not set yet, so nothing was built. See README.md."
+            echo "::warning::Repository secret SIGNING_PASSWORD is not set yet: building unsigned to check the code, no release. See README.md."
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -56,12 +56,13 @@ jobs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Build release APK
-        if: steps.key.outputs.ready == 'true'
         run: |
           VC=$((100 + VERSION_CODE))
           echo "VC=$VC" >> "$GITHUB_ENV"
           gradle --no-daemon assembleRelease -PversionCode=$VC -PgithubRepo=${{ github.repository }}
-          cp app/build/outputs/apk/release/app-release.apk taycan-screen.apk
+          if [ "${{ steps.key.outputs.ready }}" = "true" ]; then
+            cp app/build/outputs/apk/release/app-release.apk taycan-screen.apk
+          fi
 
       - name: Verify signature
         if: steps.key.outputs.ready == 'true'
