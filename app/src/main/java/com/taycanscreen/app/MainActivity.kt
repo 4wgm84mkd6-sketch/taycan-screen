@@ -51,7 +51,9 @@ import com.taycanscreen.app.log.LogSharer
 import com.taycanscreen.app.ui.Palette
 import com.taycanscreen.app.ui.TaycanTheme
 import com.taycanscreen.app.ui.WindowNumbers
+import com.taycanscreen.app.ui.setFullScreen
 import com.taycanscreen.app.ui.windowNumbers
+import kotlinx.coroutines.delay
 import com.taycanscreen.app.update.InstallResultReceiver
 import com.taycanscreen.app.update.UpdateState
 import com.taycanscreen.app.update.UpdateViewModel
@@ -59,6 +61,7 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private val updates: UpdateViewModel by viewModels()
+    private val fullScreen = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +70,14 @@ class MainActivity : ComponentActivity() {
             TaycanTheme {
                 MainScreen(
                     updates = updates,
-                    window = windowNumbers(),
+                    fullScreen = fullScreen.value,
+                    onToggleFullScreen = {
+                        val on = !fullScreen.value
+                        fullScreen.value = on
+                        setFullScreen(on)
+                        AppLog.info("screen", if (on) "Full screen ON (box bars hidden)" else "Full screen OFF")
+                    },
+                    readWindow = { windowNumbers() },
                     onShareLog = {
                         try {
                             if (!LogSharer.share(this)) toast("No log file yet")
@@ -92,6 +102,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updates.onResume()
+        if (fullScreen.value) setFullScreen(true)
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
@@ -102,7 +113,9 @@ private val LargeButtonHeight = 72.dp
 @Composable
 private fun MainScreen(
     updates: UpdateViewModel,
-    window: WindowNumbers,
+    fullScreen: Boolean,
+    onToggleFullScreen: () -> Unit,
+    readWindow: () -> WindowNumbers,
     onShareLog: () -> Unit,
     onOpenInstallSetting: () -> Unit,
 ) {
@@ -130,7 +143,7 @@ private fun MainScreen(
                 )
                 UpdatePanel(updates, onOpenInstallSetting)
                 BigButton("Share log", onClick = onShareLog)
-                ScreenPanel(window, contentW, contentH)
+                ScreenPanel(readWindow, contentW, contentH, fullScreen, onToggleFullScreen)
             }
             LogViewer(Modifier.fillMaxSize())
         }
@@ -179,15 +192,30 @@ private fun UpdatePanel(updates: UpdateViewModel, onOpenInstallSetting: () -> Un
 }
 
 @Composable
-private fun ScreenPanel(window: WindowNumbers, contentW: Dp, contentH: Dp) {
+private fun ScreenPanel(
+    readWindow: () -> WindowNumbers,
+    contentW: Dp,
+    contentH: Dp,
+    fullScreen: Boolean,
+    onToggleFullScreen: () -> Unit,
+) {
     val density = LocalDensity.current
     val config = LocalConfiguration.current
+    // Re-read whenever the app area changes (e.g. after hiding the box's bars).
+    // A second read shortly after start/toggle catches insets Android reports late.
+    var settle by remember { mutableStateOf(0) }
+    LaunchedEffect(fullScreen) {
+        delay(800)
+        settle++
+    }
+    val window = remember(contentW, contentH, fullScreen, settle) { readWindow() }
     val wPx = with(density) { contentW.toPx() }.roundToInt()
     val hPx = with(density) { contentH.toPx() }.roundToInt()
     val summary = "App area ${contentW.value.roundToInt()}×${contentH.value.roundToInt()} dp " +
         "($wPx×$hPx px, inside 16 dp padding) · " +
         "window ${window.windowWidthPx}×${window.windowHeightPx} px · " +
         "max ${window.maxWidthPx}×${window.maxHeightPx} px · " +
+        "box bars L${window.barsLeft} T${window.barsTop} R${window.barsRight} B${window.barsBottom} px · " +
         "${config.densityDpi} dpi (scale ${"%.2f".format(density.density)}) · " +
         "font scale ${"%.2f".format(density.fontScale)}"
     var logged by remember { mutableStateOf("") }
@@ -200,6 +228,8 @@ private fun ScreenPanel(window: WindowNumbers, contentW: Dp, contentH: Dp) {
     Panel {
         Text("Screen", color = Palette.TextDim, fontSize = 16.sp)
         Text(summary, color = Palette.Text, fontSize = 16.sp)
+        BigButton(if (fullScreen) "Full screen: ON (tap to show bars)" else "Full screen: OFF (tap to hide bars)",
+            onClick = onToggleFullScreen)
     }
 }
 
