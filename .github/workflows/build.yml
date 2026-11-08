@@ -46,6 +46,12 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Ignore spaces/line breaks pasted along with the secret.
+          SIGNING_PASSWORD=$(printf '%s' "$SIGNING_PASSWORD" | tr -d '[:space:]')
+          echo "::add-mask::$SIGNING_PASSWORD"
+          if printf '%s' "$SIGNING_PASSWORD" | grep -qE '^[0-9a-f]+$'; then KIND=hex; else KIND="not hex"; fi
+          echo "Signing password: ${#SIGNING_PASSWORD} characters, $KIND (expected 48, hex)"
+          export SIGNING_PASSWORD
           # signing/release.jks.enc is the release keystore, AES-256 encrypted with SIGNING_PASSWORD.
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -a \
             -in signing/release.jks.enc -out "$RUNNER_TEMP/release.jks" -pass env:SIGNING_PASSWORD
