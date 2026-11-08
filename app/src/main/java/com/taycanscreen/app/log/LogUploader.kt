@@ -23,6 +23,9 @@ import java.util.zip.GZIPOutputStream
 object LogUploader {
     private const val TAG = "log"
     private const val SESSIONS_TO_SEND = 3
+    /** Upload in pieces so a weak mobile signal only has to carry a small request at a time. */
+    private const val PART_BYTES = 256 * 1024
+    private const val TRIES_PER_PART = 4
 
     /** Thrown when GitHub rejects the stored sign-in, so the screen can ask to sign in again. */
     class SignInNeeded(message: String) : Exception(message)
@@ -43,10 +46,23 @@ object LogUploader {
             "${stamp.format(DateTimeFormatter.ofPattern("HHmmss"))}-build${BuildConfig.VERSION_CODE}"
         var sent = 0
         for (f in files) {
-            val result = putFile(token, "$folder/${f.name}.gz", gzip(f), "Log ${f.name} from build ${BuildConfig.VERSION_CODE}")
-            if (result != null) {
-                AppLog.error(TAG, "Upload of ${f.name} failed: $result")
-                return@withContext "Upload failed: $result" + if (sent > 0) " ($sent of ${files.size} sent)" else ""
+            val bytes = gzip(f)
+            // Small files go up whole; bigger ones as name.gz.part01, part02… (joined again by Claude).
+            val parts = if (bytes.size <= PART_BYTES) listOf(bytes)
+            else (bytes.indices step PART_BYTES).map { bytes.copyOfRange(it, minOf(it + PART_BYTES, bytes.size)) }
+            for ((i, part) in parts.withIndex()) {
+                val path = if (parts.size == 1) "$folder/${f.name}.gz" else "$folder/${f.name}.gz.part%02d".format(i + 1)
+                var result: String? = null
+                for (attempt in 1..TRIES_PER_PART) {
+                    result = putFile(token, path, part, "Log ${f.name} (${i + 1}/${parts.size}) from build ${BuildConfig.VERSION_CODE}")
+                    if (result == null) break
+                    AppLog.warn(TAG, "Upload of $path failed (try $attempt): $result")
+                    if (attempt < TRIES_PER_PART) kotlinx.coroutines.delay(3_000L * attempt)
+                }
+                if (result != null) {
+                    return@withContext "Upload failed: $result" + if (sent > 0) " ($sent of ${files.size} files sent)" else "" +
+                        ". The log is kept on the box; try again with a better signal."
+                }
             }
             sent++
         }

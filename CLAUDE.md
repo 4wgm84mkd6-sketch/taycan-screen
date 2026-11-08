@@ -23,6 +23,7 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   read them. Auth: GitHub device-flow sign-in on the box to the owner's "taycan-logs" GitHub App
   (installed only on taycan-logs, Contents R/W). Only the App's public Client ID ships in the APK
   (`taycanLogClientId` in gradle.properties). Never build a token or secret into the APK.
+  Files over 256 KB (gzipped) arrive as `<name>.gz.partNN`: join them in order (`cat`) before `zcat`.
 - After pushing, check the Actions run succeeded before telling the owner a build is ready.
 - Package name `com.taycanscreen.app` is permanent; changing it breaks updates.
 
