@@ -169,7 +169,7 @@ object SpotifyController {
 
     /** Cover art for the current track, retried a few times (the image call can fail while Spotify is busy). */
     private fun loadArtwork(r: SpotifyAppRemote, uri: ImageUri, attempt: Int) {
-        r.imagesApi.getImage(uri, Image.Dimension.MEDIUM)
+        r.imagesApi.getImage(uri, Image.Dimension.LARGE)
             .setResultCallback { bmp ->
                 if (artUri == uri.raw) _artwork.value = bmp
             }
