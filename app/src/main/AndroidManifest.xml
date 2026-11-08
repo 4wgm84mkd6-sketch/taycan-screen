@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Equalizer on the players' audio sessions (and the global mix as a fallback). -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Box health: list every installed app, and offer Uninstall for apps added later. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />

@@ -7,6 +7,7 @@ class TaycanApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLog.init(this)
+        com.taycanscreen.app.audio.EqEngine.init(this)
         AppLog.info(
             "app",
             "Started Taycan Screen build ${BuildConfig.VERSION_CODE} (${BuildConfig.VERSION_NAME}), " +

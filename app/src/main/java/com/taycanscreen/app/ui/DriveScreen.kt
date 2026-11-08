@@ -139,29 +139,32 @@ fun DriveScreen(
     }
     val v = VehicleValues.from(readings, now)
     val context = LocalContext.current
-    var musicOpen by remember { mutableStateOf(false) }
+    // Which panel covers the map: null (map), "music" or "audio".
+    var panel by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
         Row(Modifier.fillMaxWidth().weight(1f)) {
-            VehiclePanel(v, status.state, status.detail, colors, { musicOpen = true }, Modifier.width(PanelWidth).fillMaxHeight())
+            VehiclePanel(v, status.state, status.detail, colors, { panel = "music" }, Modifier.width(PanelWidth).fillMaxHeight())
             Box(Modifier.width(1.dp).fillMaxHeight().background(colors.border))
             // The map keeps running underneath while Music is open, so it's current when you close it.
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 MapArea(v, colors, locationGranted, Modifier.fillMaxSize())
-                if (musicOpen) {
-                    MusicPanel(
+                when (panel) {
+                    "music" -> MusicPanel(
                         colors,
-                        onClose = { musicOpen = false },
+                        onClose = { panel = null },
                         onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
                         modifier = Modifier.fillMaxSize(),
                     )
+                    "audio" -> AudioPanel(colors, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
                 }
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
         Dock(
             colors, themeMode, onCycleTheme, onOpenVehicle, onOpenSetup,
-            onOpenMusic = { musicOpen = !musicOpen },
+            onOpenMusic = { panel = if (panel == "music") null else "music" },
+            onOpenAudio = { panel = if (panel == "audio") null else "audio" },
             modifier = Modifier.fillMaxWidth().height(DockHeight),
         )
     }
@@ -429,6 +432,33 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
         }
         onDispose { mapView.setOnTouchListener(null) }
     }
+    // Satellite count from the box's GPS receiver, to tell "no signal" apart from "no GPS at all".
+    var sats by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(locationGranted) {
+        val lm = context.getSystemService(android.location.LocationManager::class.java)
+        var lastLog = 0L
+        val cb = object : android.location.GnssStatus.Callback() {
+            override fun onSatelliteStatusChanged(status: android.location.GnssStatus) {
+                val seen = status.satelliteCount
+                val used = (0 until seen).count { status.usedInFix(it) }
+                val strong = (0 until seen).count { status.getCn0DbHz(it) >= 25f }
+                sats = "$used used / $seen seen"
+                val now = System.currentTimeMillis()
+                if (now - lastLog > 30_000) {
+                    lastLog = now
+                    AppLog.info("map", "Satellites: $seen seen, $strong strong (≥25 dB-Hz), $used used in fix")
+                }
+            }
+        }
+        if (locationGranted && lm != null) {
+            try {
+                lm.registerGnssStatusCallback(cb, android.os.Handler(android.os.Looper.getMainLooper()))
+            } catch (e: SecurityException) {
+                AppLog.warn("map", "No satellite status: ${e.message}")
+            }
+        }
+        onDispose { lm?.unregisterGnssStatusCallback(cb) }
+    }
     // Keep the sun calculation's position current while driving.
     LaunchedEffect(locationOverlay) {
         while (locationOverlay != null) {
@@ -490,7 +520,8 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
         }
 
         Text(
-            if (!locationGranted) "GPS: no permission" else gps ?: "GPS: searching…",
+            if (!locationGranted) "GPS: no permission"
+            else (gps ?: "GPS: searching…") + (sats?.let { " · $it satellites" } ?: ""),
             color = c.textDim, fontSize = 12.sp,
             modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
                 .clip(RoundedCornerShape(6.dp)).background(c.panel.copy(alpha = 0.85f)).padding(horizontal = 6.dp, vertical = 2.dp),
@@ -619,6 +650,7 @@ private fun Dock(
     onOpenVehicle: () -> Unit,
     onOpenSetup: () -> Unit,
     onOpenMusic: () -> Unit,
+    onOpenAudio: () -> Unit,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
@@ -633,6 +665,7 @@ private fun Dock(
                 launchFirst(context, "Google Maps", "com.google.android.apps.maps", "com.waze")
             }
             DockButton(DesignIcons.Media, "Music", c, onClick = onOpenMusic)
+            DockButton(DesignIcons.Equalizer, "Audio and equalizer", c, onClick = onOpenAudio)
             val themeIcon = when (themeMode) {
                 ThemeMode.Auto -> DesignIcons.Auto
                 ThemeMode.Day -> DesignIcons.Sun

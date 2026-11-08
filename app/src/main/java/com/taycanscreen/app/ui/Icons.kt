@@ -60,6 +60,10 @@ object DesignIcons {
     val Previous = filled("previous", "M19 20L9 12l10-8z", "M4 5h2.5v14H4z")
     val Next = filled("next", "M5 4l10 8-10 8z", "M17.5 5H20v14h-2.5z")
     val Close = stroke("close", 2.2f, "M6 6l12 12", "M18 6L6 18")
+    /** Design's "Audio and equalizer" sliders icon. */
+    val Equalizer = stroke(
+        "equalizer", 1.9f, "M4 21v-7", "M4 10V3", "M12 21v-9", "M12 8V3", "M20 21v-5", "M20 12V3", "M1 14h6", "M9 8h6", "M17 16h6",
+    )
     /** Compass with "N": map is north-up. */
     val NorthUp = stroke("north-up", 1.9f, circle(12f, 12f, 9f), "M9 15.5V8.5l6 7V8.5")
     /** Compass with arrow: map turns with the car. */

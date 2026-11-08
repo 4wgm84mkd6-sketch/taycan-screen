@@ -137,6 +137,8 @@ object SpotifyController {
         r.playerApi.subscribeToPlayerState()
             .setEventCallback { ps ->
                 val t = ps.track
+                // If Spotify plays but never announced its audio session, fall back to the global EQ.
+                if (!ps.isPaused) handler.postDelayed({ com.taycanscreen.app.audio.EqEngine.tryGlobal() }, 15_000L)
                 _nowPlaying.value = if (t == null) null else NowPlaying(
                     title = t.name ?: "",
                     artist = t.artist?.name ?: t.artists?.joinToString { it.name } ?: "",
@@ -148,11 +150,13 @@ object SpotifyController {
                     imageUri = t.imageUri,
                 )
                 val uri = t?.imageUri
-                if (uri != null && uri.raw != artUri) {
+                if (uri == null) {
+                    artUri = null
+                    _artwork.value = null
+                } else if (uri.raw != artUri || _artwork.value == null) {
                     artUri = uri.raw
-                    r.imagesApi.getImage(uri, Image.Dimension.MEDIUM)
-                        .setResultCallback { bmp -> if (artUri == uri.raw) _artwork.value = bmp }
-                        .setErrorCallback { AppLog.warn(TAG, "Artwork failed: ${it.message}") }
+                    _artwork.value = null // don't show the previous song's cover meanwhile
+                    loadArtwork(r, uri, attempt = 1)
                 }
             }
             .setErrorCallback { e ->
@@ -160,6 +164,20 @@ object SpotifyController {
                 remote = null
                 _status.value = Status(Link.Failed, "Spotify disconnected")
                 handler.postDelayed({ connect(showAuth = false) }, 3_000L)
+            }
+    }
+
+    /** Cover art for the current track, retried a few times (the image call can fail while Spotify is busy). */
+    private fun loadArtwork(r: SpotifyAppRemote, uri: ImageUri, attempt: Int) {
+        r.imagesApi.getImage(uri, Image.Dimension.MEDIUM)
+            .setResultCallback { bmp ->
+                if (artUri == uri.raw) _artwork.value = bmp
+            }
+            .setErrorCallback { e ->
+                AppLog.warn(TAG, "Artwork failed (try $attempt): ${e.javaClass.simpleName}: ${e.message}")
+                if (attempt < 4 && artUri == uri.raw) {
+                    handler.postDelayed({ remote?.let { loadArtwork(it, uri, attempt + 1) } }, 1_500L * attempt)
+                }
             }
     }
 

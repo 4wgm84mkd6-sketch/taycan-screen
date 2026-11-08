@@ -424,6 +424,7 @@ object ObdEngine {
             else -> Reading(null, "${sig.command.rax}: ${describe(r)}", now)
         }
         _readings.value = _readings.value + (sig.id to reading)
+        if (sig == Taycan.SPEED) com.taycanscreen.app.audio.EqEngine.onSpeed(reading.value?.let { it * 0.621371 })
         AppLog.info("value", "${sig.id} = ${reading.value?.let { "%.2f %s".format(it, sig.unit) } ?: "—"} (${reading.raw})")
     }
 
