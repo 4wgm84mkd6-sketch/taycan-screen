@@ -1,10 +1,13 @@
 package com.taycanscreen.app
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -48,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.log.LogSharer
+import com.taycanscreen.app.obd.ObdViewModel
+import com.taycanscreen.app.ui.LivePanel
 import com.taycanscreen.app.ui.Palette
 import com.taycanscreen.app.ui.TaycanTheme
 import com.taycanscreen.app.ui.WindowNumbers
@@ -61,7 +67,19 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private val updates: UpdateViewModel by viewModels()
-    private val fullScreen = mutableStateOf(false)
+    private val obd: ObdViewModel by viewModels()
+    // Phase 1 plan: run full screen (1602×720) with the box's dock hidden; toggle on the Setup tab.
+    private val fullScreen = mutableStateOf(true)
+
+    private val btPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        AppLog.info("obd", "Bluetooth permission ${if (granted) "granted" else "denied"}")
+        if (granted) obd.start()
+    }
+
+    private fun requestBluetooth() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) btPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        else obd.start()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +88,8 @@ class MainActivity : ComponentActivity() {
             TaycanTheme {
                 MainScreen(
                     updates = updates,
+                    obd = obd,
+                    onRequestBluetooth = { requestBluetooth() },
                     fullScreen = fullScreen.value,
                     onToggleFullScreen = {
                         val on = !fullScreen.value
@@ -99,6 +119,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPostCreate(savedInstanceState: Bundle?) {
+        super.onPostCreate(savedInstanceState)
+        // Start reading the car straight away when the app opens.
+        if (obd.hasPermission()) obd.start() else requestBluetooth()
+    }
+
     override fun onResume() {
         super.onResume()
         updates.onResume()
@@ -113,6 +139,8 @@ private val LargeButtonHeight = 72.dp
 @Composable
 private fun MainScreen(
     updates: UpdateViewModel,
+    obd: ObdViewModel,
+    onRequestBluetooth: () -> Unit,
     fullScreen: Boolean,
     onToggleFullScreen: () -> Unit,
     readWindow: () -> WindowNumbers,
@@ -127,27 +155,53 @@ private fun MainScreen(
     ) {
         val contentW = maxWidth
         val contentH = maxHeight
+        var tab by rememberSaveable { mutableStateOf("live") }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(
                 Modifier
-                    .width(minOf(440.dp, contentW * 0.45f))
-                    .fillMaxHeight()
-                    .verticalScroll(rememberScrollState()),
+                    .width(150.dp)
+                    .fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Taycan Screen", color = Palette.Text, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "Build ${BuildConfig.VERSION_CODE}",
-                    color = Palette.TextDim,
-                    fontSize = 20.sp,
-                )
-                UpdatePanel(updates, onOpenInstallSetting)
-                BigButton("Share log", onClick = onShareLog)
-                ScreenPanel(readWindow, contentW, contentH, fullScreen, onToggleFullScreen)
+                Text("Taycan Screen", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("Build ${BuildConfig.VERSION_CODE}", color = Palette.TextDim, fontSize = 16.sp)
+                TabButton("Live", tab == "live") { tab = "live" }
+                TabButton("Setup", tab == "setup") { tab = "setup" }
             }
-            LogViewer(Modifier.fillMaxSize())
+            if (tab == "live") {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LivePanel(obd, onRequestBluetooth, Modifier.fillMaxWidth())
+                    LogViewer(Modifier.fillMaxWidth().weight(1f))
+                }
+            } else {
+                Column(
+                    Modifier
+                        .width(minOf(420.dp, contentW * 0.42f))
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    UpdatePanel(updates, onOpenInstallSetting)
+                    BigButton("Share log", onClick = onShareLog)
+                    ScreenPanel(readWindow, contentW, contentH, fullScreen, onToggleFullScreen)
+                }
+                LogViewer(Modifier.fillMaxSize())
+            }
         }
     }
+}
+
+@Composable
+private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Palette.Accent else Palette.SurfaceHigh,
+            contentColor = if (selected) Color.Black else Palette.Text,
+        ),
+    ) { Text(label, fontSize = 22.sp, fontWeight = FontWeight.SemiBold) }
 }
 
 @Composable

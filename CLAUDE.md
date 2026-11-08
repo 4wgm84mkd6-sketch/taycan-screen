@@ -22,10 +22,15 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
 - Package name `com.taycanscreen.app` is permanent; changing it breaks updates.
 
 ## OBD rules (non-negotiable)
-- Use the exact headers, requests and formulas from the Car Scanner custom PID definitions in
-  `reference/`. Don't guess module addresses. If the definitions aren't there, ask for them before
-  writing OBD code.
-- Read-only. Never send "Reboot MMI" or any write/reset/actuation/coding command.
+- Definitions come from OBDb (`reference/obdb/`, owner-approved 2026-11-08; Car Scanner hides its
+  built-in Porsche definitions). Use their exact headers, requests and formulas. Don't guess module
+  addresses or invent requests; if a signal isn't in OBDb, ask the owner first.
+- Every value must be checked against Car Scanner on the owner's iPhone before it's trusted. The MX+
+  serves one device at a time, so compare in turns while parked.
+- Read-only. Never send "Reboot MMI" or any write/reset/actuation/coding command. The only car
+  requests allowed are `22 xxxx` (read data) and `10 03` (extended diagnostic session, owner-approved
+  for modules whose OBDb entries have `din: "03"`). `ElmConnection` enforces this allowlist; AT/ST
+  commands go to the adapter only.
 - Don't require `0100` to succeed (the car doesn't answer it). Set the protocol explicitly as the
   definitions indicate.
 - Log every raw adapter exchange with timestamps (`AppLog.tx` / `AppLog.rx`).

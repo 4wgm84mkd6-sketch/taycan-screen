@@ -7,6 +7,12 @@ name: Build and release APK
 
 on:
   push:
+    # Docs and reference material alone don't need a new build.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "reference/**"
+      - "design/**"
   pull_request:
   workflow_dispatch:
 
@@ -65,7 +71,7 @@ jobs:
         run: |
           VC=$((100 + VERSION_CODE))
           echo "VC=$VC" >> "$GITHUB_ENV"
-          gradle --no-daemon assembleRelease -PversionCode=$VC -PgithubRepo=${{ github.repository }}
+          gradle --no-daemon testReleaseUnitTest assembleRelease -PversionCode=$VC -PgithubRepo=${{ github.repository }}
           if [ "${{ steps.key.outputs.ready }}" = "true" ]; then
             cp app/build/outputs/apk/release/app-release.apk taycan-screen.apk
           fi

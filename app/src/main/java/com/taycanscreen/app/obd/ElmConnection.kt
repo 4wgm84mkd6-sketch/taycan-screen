@@ -1,0 +1,103 @@
+package com.taycanscreen.app.obd
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothSocket
+import com.taycanscreen.app.log.AppLog
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.UUID
+
+/**
+ * Serial link to the OBDLink MX+ (ELM327/STN command set) over Bluetooth Classic SPP.
+ * Every byte sent and received is logged with a timestamp (AppLog TX/RX).
+ *
+ * SAFETY: [send] refuses anything that is not on the read-only allowlist below. AT and STI commands
+ * configure the adapter only; the only messages that reach the car are 22 xxxx (read data by
+ * identifier) and 10 03 (extended diagnostic session, owner-approved). Nothing that writes,
+ * resets, codes or actuates can be sent.
+ */
+class ElmConnection private constructor(
+    private val socket: BluetoothSocket,
+    private val input: InputStream,
+    private val output: OutputStream,
+) {
+    companion object {
+        private const val TAG = "obd"
+        private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+        private val ALLOWED = listOf(
+            Regex("^AT[A-Z0-9]*$"),      // adapter configuration
+            Regex("^STI$"),              // STN firmware id
+            Regex("^1003$"),             // extended diagnostic session (read access)
+            Regex("^22[0-9A-F]{4}$"),    // read data by identifier
+        )
+
+        fun isAllowed(cmd: String): Boolean = ALLOWED.any { it.matches(cmd) }
+
+        @SuppressLint("MissingPermission")
+        fun open(device: BluetoothDevice): ElmConnection {
+            AppLog.info(TAG, "Connecting to ${device.name} (${device.address})")
+            val socket = try {
+                device.createRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
+            } catch (first: IOException) {
+                AppLog.warn(TAG, "Standard connect failed (${first.message}); trying channel 1")
+                // Common fallback for SPP adapters whose SDP record isn't found.
+                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                (m.invoke(device, 1) as BluetoothSocket).also { it.connect() }
+            }
+            AppLog.info(TAG, "Bluetooth connected")
+            return ElmConnection(socket, socket.inputStream, socket.outputStream)
+        }
+    }
+
+    /** Sends one command and returns everything up to the '>' prompt. */
+    fun send(cmd: String, timeoutMs: Long = 2500): String {
+        val c = cmd.uppercase().replace(" ", "")
+        if (!isAllowed(c)) {
+            AppLog.error(TAG, "BLOCKED non-allowlisted command '$c'")
+            throw IllegalArgumentException("Blocked command $c")
+        }
+        // Drop anything left over from an earlier exchange.
+        while (input.available() > 0) {
+            val stale = ByteArray(input.available())
+            val n = input.read(stale)
+            if (n > 0) AppLog.rx(TAG, "(stale) " + String(stale, 0, n, Charsets.ISO_8859_1))
+        }
+        AppLog.tx(TAG, "$c\r")
+        output.write("$c\r".toByteArray(Charsets.ISO_8859_1))
+        output.flush()
+        val reply = readUntilPrompt(timeoutMs)
+        AppLog.rx(TAG, reply + ">")
+        return reply
+    }
+
+    private fun readUntilPrompt(timeoutMs: Long): String {
+        val sb = StringBuilder()
+        val buf = ByteArray(256)
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val avail = input.available()
+            if (avail > 0) {
+                val n = input.read(buf, 0, minOf(avail, buf.size))
+                if (n < 0) throw IOException("Adapter closed the connection")
+                for (i in 0 until n) {
+                    val ch = (buf[i].toInt() and 0xFF).toChar()
+                    if (ch == '>') return sb.toString()
+                    sb.append(ch)
+                }
+            } else {
+                Thread.sleep(5)
+            }
+        }
+        AppLog.rx(TAG, "(timeout after ${timeoutMs} ms) $sb")
+        throw IOException("No prompt from adapter within $timeoutMs ms")
+    }
+
+    fun close() {
+        try {
+            socket.close()
+        } catch (_: IOException) {
+        }
+    }
+}
