@@ -41,8 +41,9 @@ class InstallResultReceiver : BroadcastReceiver() {
                 }
             }
             PackageInstaller.STATUS_SUCCESS -> {
+                // Android delivers this to the newly installed version, so BuildConfig is the new build.
                 AppLog.info("update", "Install succeeded")
-                lastResult.value = "Installed. Reopen the app."
+                lastResult.value = "Updated to build ${com.taycanscreen.app.BuildConfig.VERSION_CODE}."
             }
             else -> {
                 AppLog.error("update", "Install failed: status $status, $message")
