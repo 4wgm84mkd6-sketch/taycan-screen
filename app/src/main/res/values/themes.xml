@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.TaycanScreen" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF0B0B0C</item>
+        <item name="android:statusBarColor">#FF0B0B0C</item>
+        <item name="android:navigationBarColor">#FF0B0B0C</item>
+    </style>
+</resources>

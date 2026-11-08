@@ -1,0 +1,41 @@
+# Taycan center-screen app: process and current status
+
+## Project
+A custom Android app replacing the factory infotainment view on my 2025 Porsche Taycan's center screen. Full spec: PROJECT_BRIEF.md and HANDOFF_PROMPT.md; designs in /design. A Carlinkit Android 13 AI box (Snapdragon SM6225, 8GB, BT 5.0, 4G) plugs into the car's CarPlay USB port and shows Android on the factory screen. An OBDLink MX+ (Bluetooth Classic) supplies vehicle data.
+
+## Workflow: phone only, no computer
+I work entirely from my iPhone. You can't reach the box directly, so:
+1. You write code in this GitHub repo.
+2. GitHub Actions builds a release APK on every push to main and publishes it as a GitHub Release.
+   - Sign every build with the same release key, stored as GitHub secrets, so updates install over the existing app.
+   - Auto-increment versionCode on each build.
+3. The app has a "Check for update" button that downloads the latest release APK and installs it (PackageInstaller; request "install unknown apps" permission).
+4. The app has a "Share log" button that sends the full raw OBD log through Android's share menu, plus an on-screen log viewer.
+5. I install, test in the car, and relay logs and photos back to you.
+
+## Proven so far
+- The box runs on the center screen and touch works. The Porsche frame keeps its right column visible (outside temp, 4G, park-assist button), so the usable window is narrower than the full screen. Exact size still unknown.
+- Sideloading works. A test app (OBDProbe) installed and ran.
+- Box-to-adapter Bluetooth works: ELM327 v1.4b / STN2255 v5.13.1, 12V read 13.2V.
+- The car does NOT answer standard 0100 with auto protocol (ATSP0): "SEARCHING... UNABLE TO CONNECT".
+- Car Scanner on my iPhone, using custom Taycan PID definitions through the same MX+, reads correctly: SoC Display 18.98% (use this as battery %), SoC HR 20.78% (raw, don't display), HV voltage 589.3 V, HV current 2.36 A, batt min/max temp 80.6/82.4 °F, cooling inlet temp, motor rpm, torque, speed. Blank (car doesn't answer): SoH, battery energy, battery power.
+- A "High-voltage system not free of voltage" warning appears in the car while an OBD adapter is active. This is expected, not a fault.
+
+## Rules
+- Use the exact headers, requests and formulas from the Car Scanner custom PID definitions in /reference. Don't guess module addresses. If the definitions aren't there yet, ask me for them before writing OBD code.
+- Never send the "Reboot MMI" command or any write/reset command. Read-only requests only.
+- Don't require 0100 to succeed. Set the protocol explicitly as the definitions indicate.
+- Log every raw adapter exchange with timestamps.
+- Show "—" for unavailable data, never stale values. Recover automatically from Bluetooth/OBD drops.
+- The instrument cluster stays the official speedometer. UI must be glanceable: large type, high contrast, no video.
+- I'm not a developer: give me numbered, plain-English steps for anything I do on the box or phone.
+
+## Tasks, in order
+1. Set up the repo, the GitHub Actions build, signing, releases, and the update and share-log buttons. Tell me how to do the one-time first install on the box (browser download, allow installs).
+2. OBD probe v2: connect to the MX+, set the protocol, poll SoC Display, speed, HV voltage, HV current (compute power kW = V × A) and min/max pack temp using the Car Scanner definitions. Show live values and the raw log.
+3. Add a diagnostic screen that reports the app's usable window size in px and dp and the screen density, so we can size the layout to the Porsche frame.
+4. Once 2 and 3 work, build Phase 1 from the brief: the Drive screen, left vehicle panel, dock, and day/night mode, sized to the measured window.
+5. Later: test whether an EQ can attach to Spotify's audio session on the box (gate G4) before building the Audio screen.
+
+## Status log
+- 2026-11-08: Task 1 written (build/sign/release workflow, Check for update, Share log, log viewer). Build 1 also includes a Screen panel that logs the window size and density (early part of task 3). Car Scanner definitions not yet in /reference.
