@@ -7,6 +7,10 @@ plugins {
 // CI passes -PversionCode=<n> (auto-incremented per build) and -PgithubRepo=<owner/repo>.
 val ciVersionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
 val githubRepo = (project.findProperty("githubRepo") as String?) ?: ""
+// "Send log to Claude": the box signs in to the owner's GitHub App with a device code; only the App's
+// public Client ID ships in the app (gradle.properties: taycanLogClientId). No secret is built in.
+val logClientId = (project.findProperty("taycanLogClientId") as String?)?.trim() ?: ""
+val logRepo = if (githubRepo.contains("/")) githubRepo.substringBefore("/") + "/taycan-logs" else ""
 
 // Release signing comes from environment variables set by the GitHub Actions workflow
 // (decoded from repository secrets). The same key must sign every build so updates
@@ -24,6 +28,8 @@ android {
         versionCode = ciVersionCode
         versionName = "0.1.$ciVersionCode"
         buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
+        buildConfigField("String", "LOG_REPO", "\"$logRepo\"")
+        buildConfigField("String", "LOG_CLIENT_ID", "\"$logClientId\"")
     }
 
     signingConfigs {

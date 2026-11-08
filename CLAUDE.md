@@ -8,7 +8,7 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   they must do on the box or phone. Never assume a computer.
 - You can't reach the box. The loop is: push to `main` → GitHub Actions builds a signed APK and
   publishes a GitHub Release → owner taps **Check for update** in the app → tests in the car →
-  sends back the log from **Share log** plus photos.
+  sends back the log with **Send log to Claude** plus photos.
 
 ## Build and release
 - Every push to `main` triggers `.github/workflows/build.yml`: signed `assembleRelease`, versionCode =
@@ -18,6 +18,11 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   (alias `taycan`). Never commit an unencrypted key.
 - No Gradle wrapper in the repo (the GitHub connector can't upload binaries); CI pins Gradle 8.11.1.
 - The repo must stay public so the app can download releases without a token.
+- Logs: the owner taps **Send log to Claude** (Setup); the app uploads gzipped session logs to the
+  private repo `<owner>/taycan-logs` under `logs/<date>/<time>-build<N>/`. Attach that repo (read) to
+  read them. Auth: GitHub device-flow sign-in on the box to the owner's "taycan-logs" GitHub App
+  (installed only on taycan-logs, Contents R/W). Only the App's public Client ID ships in the APK
+  (`taycanLogClientId` in gradle.properties). Never build a token or secret into the APK.
 - After pushing, check the Actions run succeeded before telling the owner a build is ready.
 - Package name `com.taycanscreen.app` is permanent; changing it breaks updates.
 

@@ -44,11 +44,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +59,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.log.LogSharer
+import com.taycanscreen.app.log.GitHubAuth
+import com.taycanscreen.app.log.LogUploader
 import com.taycanscreen.app.obd.ObdViewModel
 import com.taycanscreen.app.ui.DriveColors
 import com.taycanscreen.app.ui.DriveScreen
@@ -69,6 +73,7 @@ import com.taycanscreen.app.ui.WindowNumbers
 import com.taycanscreen.app.ui.setFullScreen
 import com.taycanscreen.app.ui.windowNumbers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.taycanscreen.app.update.InstallResultReceiver
 import com.taycanscreen.app.update.UpdateState
 import com.taycanscreen.app.update.UpdateViewModel
@@ -274,6 +279,7 @@ private fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     UpdatePanel(updates, onOpenInstallSetting)
+                    SendLogPanel()
                     BigButton("Share log", onClick = onShareLog)
                     Panel {
                         Text("Home screen", color = Palette.TextDim, fontSize = 16.sp)
@@ -303,6 +309,73 @@ private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
             contentColor = if (selected) Color.Black else Palette.Text,
         ),
     ) { Text(label, fontSize = 22.sp, fontWeight = FontWeight.SemiBold) }
+}
+
+@Composable
+private fun SendLogPanel() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var signedIn by remember { mutableStateOf(GitHubAuth.token(context) != null) }
+    var code by remember { mutableStateOf<GitHubAuth.DeviceCode?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<String?>(null) }
+
+    fun signIn() {
+        busy = true
+        result = null
+        scope.launch {
+            try {
+                val c = GitHubAuth.start()
+                code = c
+                GitHubAuth.waitForToken(context, c)
+                signedIn = true
+                result = "Signed in. You can send logs now."
+            } catch (e: Exception) {
+                AppLog.error("log", "GitHub sign-in failed", e)
+                result = "Sign-in failed: ${e.message}"
+            } finally {
+                code = null
+                busy = false
+            }
+        }
+    }
+
+    Panel {
+        Text("Send log to Claude", color = Palette.TextDim, fontSize = 16.sp)
+        when {
+            !GitHubAuth.configured ->
+                StatusText("Not set up in this build yet (the GitHub App's Client ID is missing).", Palette.Warn)
+            code != null -> {
+                StatusText("On your iPhone, open github.com/login/device and enter:")
+                Text(code!!.userCode, color = Palette.Accent, fontSize = 40.sp, fontWeight = FontWeight.Bold)
+                StatusText("Waiting for you to approve…", Palette.TextDim)
+            }
+            !signedIn -> BigButton(if (busy) "Starting…" else "Sign in to GitHub", enabled = !busy) { signIn() }
+            else -> {
+                result?.let { StatusText(it, if (it.startsWith("Sent") || it.startsWith("Signed")) Palette.Accent else Palette.Error) }
+                BigButton(if (busy) "Sending…" else "Send log to Claude", enabled = !busy) {
+                    busy = true
+                    result = null
+                    scope.launch {
+                        result = try {
+                            LogUploader.upload(context)
+                        } catch (e: LogUploader.SignInNeeded) {
+                            GitHubAuth.signOut(context)
+                            signedIn = false
+                            e.message
+                        }
+                        busy = false
+                    }
+                }
+                BigButton("Sign out of GitHub", enabled = !busy) {
+                    GitHubAuth.signOut(context)
+                    signedIn = false
+                    result = null
+                }
+            }
+        }
+        if (!signedIn && code == null) result?.let { StatusText(it, Palette.Error) }
+    }
 }
 
 @Composable
