@@ -36,7 +36,7 @@ There is no Gradle wrapper in the repo; CI installs Gradle 8.11.1 itself.
 Do this parked.
 
 1. On the box, open the web browser.
-2. Go to `github.com/<owner>/taycan-screen/releases/latest`.
+2. Go to `github.com/4wgm84mkd6-sketch/taycan-screen/releases/latest`.
 3. Under **Assets**, tap **taycan-screen.apk**. Wait for the download to finish.
 4. Tap the download notification (or open the Downloads / Files app and tap `taycan-screen.apk`).
 5. If Android says installs from this source aren't allowed, tap **Settings**, turn on
