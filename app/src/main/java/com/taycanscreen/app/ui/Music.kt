@@ -107,6 +107,7 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
     var error by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val online by com.taycanscreen.app.net.NetMonitor.online.collectAsState()
 
     /** Turns technical errors into something readable in the car. */
     fun friendly(msg: String?): String {
@@ -142,6 +143,7 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
     LaunchedEffect(tokenVersion) { pending?.let { pending = null; it() } }
 
     fun loadRoot() {
+        com.taycanscreen.app.log.AppLog.info("spotify", "Browse: loading Spotify home (online=${com.taycanscreen.app.net.NetMonitor.online.value})")
         loading = true
         error = null
         SpotifyController.browseRoot(
@@ -231,6 +233,7 @@ fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit
             }
             view == "now" -> NowPlayingView(c, Modifier.fillMaxSize())
             else -> {
+                if (!online) Text("The box is offline right now (no Wi-Fi or 4G internet).", color = c.warn, fontSize = 15.sp)
                 if (loading) Text("Loading…", color = c.textDim, fontSize = 15.sp)
                 error?.let {
                     Text(it, color = if (it.startsWith("Renewing")) c.textDim else c.danger, fontSize = 15.sp)
