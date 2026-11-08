@@ -61,6 +61,8 @@ import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.log.LogSharer
 import com.taycanscreen.app.log.GitHubAuth
 import com.taycanscreen.app.log.LogUploader
+import com.taycanscreen.app.obd.Discovery
+import com.taycanscreen.app.obd.LinkState
 import com.taycanscreen.app.obd.ObdViewModel
 import com.taycanscreen.app.ui.DriveColors
 import com.taycanscreen.app.ui.DriveScreen
@@ -280,6 +282,7 @@ private fun MainScreen(
                 ) {
                     UpdatePanel(updates, onOpenInstallSetting)
                     SendLogPanel()
+                    DiscoveryPanel(obd)
                     BigButton("Share log", onClick = onShareLog)
                     Panel {
                         Text("Home screen", color = Palette.TextDim, fontSize = 16.sp)
@@ -309,6 +312,54 @@ private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
             contentColor = if (selected) Color.Black else Palette.Text,
         ),
     ) { Text(label, fontSize = 22.sp, fontWeight = FontWeight.SemiBold) }
+}
+
+@Composable
+private fun DiscoveryPanel(obd: ObdViewModel) {
+    val state by obd.discovery.collectAsState()
+    val link by obd.status.collectAsState()
+    LaunchedEffect(Unit) { obd.refreshDiscovery() }
+    val live = link.state == LinkState.Live
+    Panel {
+        Text("Blinker & gear discovery", color = Palette.TextDim, fontSize = 16.sp)
+        StatusText("Read-only test: parked, car switched on. It only asks the car for values and changes nothing.")
+        if (!live && state !is Discovery.State.Scanning && state !is Discovery.State.Recording) {
+            StatusText("Waiting for the car connection (switch the car on)…", Palette.Warn)
+        }
+        when (val s = state) {
+            Discovery.State.Idle ->
+                BigButton("1. Scan (up to ~30 min)", enabled = live) { obd.requestDiscovery(Discovery.Request.Scan) }
+            is Discovery.State.Scanning -> {
+                StatusText("Scanning ${s.module}: ${s.done} of ${s.total} · found ${s.found}")
+                LinearProgressIndicator(
+                    progress = { if (s.total > 0) s.done.toFloat() / s.total else 0f },
+                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                    color = Palette.Accent, trackColor = Palette.SurfaceHigh,
+                )
+                BigButton("Stop scan") { obd.cancelDiscovery() }
+            }
+            is Discovery.State.Recording -> {
+                StatusText("Recording \"${s.step}\" (round ${s.round} of ${Discovery.ROUNDS_PER_STEP}). Hold this state until it finishes.", Palette.Warn)
+                LinearProgressIndicator(
+                    progress = { if (s.total > 0) s.done.toFloat() / s.total else 0f },
+                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                    color = Palette.Accent, trackColor = Palette.SurfaceHigh,
+                )
+                BigButton("Stop") { obd.cancelDiscovery() }
+            }
+            is Discovery.State.Ready -> {
+                StatusText("Scan found ${s.found} values. Now set up each state, tap its button, and hold it until recording finishes:", Palette.Accent)
+                Discovery.STEPS.forEachIndexed { i, step ->
+                    val done = step in s.recorded
+                    BigButton("${i + 2}. $step" + if (done) "  ✓" else "", enabled = live) {
+                        obd.requestDiscovery(Discovery.Request.Record(step))
+                    }
+                }
+                StatusText("When all are ticked, tap Send log to Claude.")
+                BigButton("Scan again", enabled = live) { obd.requestDiscovery(Discovery.Request.Scan) }
+            }
+        }
+    }
 }
 
 @Composable

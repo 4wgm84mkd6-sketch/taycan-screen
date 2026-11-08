@@ -30,6 +30,9 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
 - Definitions come from OBDb (`reference/obdb/`, owner-approved 2026-11-08; Car Scanner hides its
   built-in Porsche definitions). Use their exact headers, requests and formulas. Don't guess module
   addresses or invent requests; if a signal isn't in OBDb, ask the owner first.
+- Exception (owner-approved 2026-11-08): `obd/Discovery.kt` may read (22 xxxx, default session) every
+  identifier in fixed ranges on modules from OBDb's ECU list (714, 7E0, 710) to find turn-signal and
+  gear signals. Read-only; adds no new command types.
 - Every value must be checked against Car Scanner on the owner's iPhone before it's trusted. The MX+
   serves one device at a time, so compare in turns while parked.
 - Read-only. Never send "Reboot MMI" or any write/reset/actuation/coding command. The only car

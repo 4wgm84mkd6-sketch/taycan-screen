@@ -69,6 +69,31 @@ object ObdEngine {
 
     private var job: Job? = null
 
+    // ---- Discovery (read-only search for blinker and gear signals) ----
+    private val _discovery = MutableStateFlow<Discovery.State>(Discovery.State.Idle)
+    val discovery: StateFlow<Discovery.State> = _discovery.asStateFlow()
+    @Volatile private var discoveryRequest: Discovery.Request? = null
+    @Volatile private var discoveryCancel = false
+
+    fun refreshDiscovery(force: Boolean = false) {
+        val found = Discovery.loadFound(app)
+        if (force || _discovery.value is Discovery.State.Idle || _discovery.value is Discovery.State.Ready) {
+            _discovery.value = if (found.isEmpty()) Discovery.State.Idle
+            else Discovery.State.Ready(found.values.sumOf { it.size }, Discovery.recorded(app))
+        }
+    }
+
+    fun requestDiscovery(r: Discovery.Request) {
+        discoveryCancel = false
+        discoveryRequest = r
+        AppLog.info("disc", "Requested: $r")
+    }
+
+    fun cancelDiscovery() {
+        discoveryCancel = true
+        discoveryRequest = null
+    }
+
     fun hasPermission(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
@@ -204,6 +229,19 @@ object ObdEngine {
                 delay(ASLEEP_CHECK_MS)
                 continue
             }
+            val req = discoveryRequest
+            if (req != null) {
+                discoveryRequest = null
+                try {
+                    runDiscovery(c, req)
+                } finally {
+                    c.send("ATST64")
+                    header = null            // force the normal header/flow control to be set again
+                    customFlowControl = true
+                    refreshDiscovery(force = true)
+                }
+                continue
+            }
             var answered = false
             for (sig in Taycan.POLLED) {
                 if (cycle % sig.pollEvery != 0L) continue
@@ -259,6 +297,65 @@ object ObdEngine {
     private fun adapterVolts(c: ElmConnection): Double? =
         Regex("""(\d+(?:\.\d+)?)\s*V""").find(c.send("ATRV"))?.groupValues?.get(1)?.toDoubleOrNull()
 
+    private suspend fun runDiscovery(c: ElmConnection, req: Discovery.Request) {
+        when (req) {
+            Discovery.Request.Scan -> {
+                AppLog.info("disc", "Scan started")
+                Discovery.clearRecorded(app)
+                c.send("ATST19") // 100 ms reply timeout: unsupported identifiers fail fast
+                val found = LinkedHashMap<String, List<Int>>()
+                var total = 0
+                for (m in Discovery.MODULES) {
+                    Discovery.select(c, m)
+                    val hits = ArrayList<Int>()
+                    val count = m.dids.count()
+                    for ((i, did) in m.dids.withIndex()) {
+                        if (discoveryCancel || !currentCoroutineContext().isActive) break
+                        Discovery.read(c, m, did)?.let { data ->
+                            hits.add(did)
+                            Discovery.logFound(m, did, data)
+                        }
+                        if (i % 25 == 0) _discovery.value = Discovery.State.Scanning(m.name, i, count, total + hits.size)
+                    }
+                    found[m.hdr] = hits
+                    total += hits.size
+                    AppLog.info("disc", "${m.name} (${m.hdr}): ${hits.size} identifiers answer")
+                    Discovery.saveFound(app, found)
+                    if (discoveryCancel) break
+                }
+                AppLog.info("disc", "Scan ${if (discoveryCancel) "stopped" else "finished"}: $total identifiers")
+            }
+            is Discovery.Request.Record -> {
+                val found = Discovery.loadFound(app)
+                val total = found.values.sumOf { it.size } * Discovery.ROUNDS_PER_STEP
+                var done = 0
+                AppLog.info("disc", "Recording state '${req.step}'")
+                for (round in 1..Discovery.ROUNDS_PER_STEP) {
+                    for (m in Discovery.MODULES) {
+                        val dids = found[m.hdr].orEmpty()
+                        if (dids.isEmpty()) continue
+                        Discovery.select(c, m)
+                        for (did in dids) {
+                            if (discoveryCancel || !currentCoroutineContext().isActive) return
+                            val why = StringBuilder()
+                            val data = Discovery.read(c, m, did, why)
+                            AppLog.info(
+                                "disc",
+                                "state=${req.step} round=$round ${m.hdr} 22%04X = %s".format(
+                                    did, data?.toHex() ?: "($why)",
+                                ),
+                            )
+                            done++
+                            if (done % 10 == 0) _discovery.value = Discovery.State.Recording(req.step, round, done, total)
+                        }
+                    }
+                }
+                Discovery.markRecorded(app, req.step)
+                AppLog.info("disc", "Recorded state '${req.step}'")
+            }
+        }
+    }
+
     private fun enterSession(c: ElmConnection, cmd: ObdCommand) {
         val r = IsoTp.parse(c.send("1003"), cmd.rax)
         if (r is IsoTp.Result.Payload && r.bytes.firstOrNull() == 0x50.toByte()) {
@@ -310,6 +407,10 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
     fun start() = ObdEngine.start()
     fun stop() = ObdEngine.stop()
     fun chooseAdapter(address: String) = ObdEngine.chooseAdapter(address)
+    val discovery: StateFlow<Discovery.State> get() = ObdEngine.discovery
+    fun refreshDiscovery() = ObdEngine.refreshDiscovery()
+    fun requestDiscovery(r: Discovery.Request) = ObdEngine.requestDiscovery(r)
+    fun cancelDiscovery() = ObdEngine.cancelDiscovery()
 
     companion object {
         const val STALE_MS = 5_000L
