@@ -20,6 +20,11 @@
         <package android:name="com.waze" />
         <package android:name="com.spotify.music" />
         <package android:name="com.google.android.apps.youtube.music" />
+        <!-- Find the box's own launcher for the "Open the box's launcher" button. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
     </queries>
 
     <application
@@ -38,6 +43,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Lets the owner pick Taycan Screen as the box's home app, so it opens right after boot. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

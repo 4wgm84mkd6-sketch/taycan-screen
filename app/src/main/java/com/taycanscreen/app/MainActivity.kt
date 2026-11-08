@@ -2,11 +2,14 @@ package com.taycanscreen.app
 
 import android.Manifest
 import android.os.Build
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -141,6 +144,8 @@ class MainActivity : ComponentActivity() {
                             toast("Share failed: ${e.message}")
                         }
                     },
+                    onChooseHomeApp = { openSafely(Intent(Settings.ACTION_HOME_SETTINGS), "home app setting") },
+                    onOpenBoxLauncher = { openBoxLauncher() },
                     onOpenInstallSetting = {
                         try {
                             startActivity(updates.updater.installPermissionIntent())
@@ -167,6 +172,29 @@ class MainActivity : ComponentActivity() {
         if (fullScreen.value) setFullScreen(true)
     }
 
+    private fun openSafely(intent: Intent, what: String) {
+        try {
+            startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            AppLog.error("home", "Couldn't open $what", e)
+            toast("Couldn't open $what on this box")
+        }
+    }
+
+    /** Opens the box's own launcher (any other home app), e.g. to reach its app list. */
+    private fun openBoxLauncher() {
+        val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        val other = packageManager.queryIntentActivities(home, 0)
+            .map { it.activityInfo }
+            .firstOrNull { it.packageName != packageName }
+        if (other == null) {
+            toast("No other home screen found")
+            return
+        }
+        AppLog.info("home", "Opening box launcher ${other.packageName}")
+        openSafely(Intent(home).setClassName(other.packageName, other.name), "the box's launcher")
+    }
+
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 }
 
@@ -184,6 +212,8 @@ private fun MainScreen(
     onToggleFullScreen: () -> Unit,
     readWindow: () -> WindowNumbers,
     onShareLog: () -> Unit,
+    onChooseHomeApp: () -> Unit,
+    onOpenBoxLauncher: () -> Unit,
     onOpenInstallSetting: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf("drive") }
@@ -194,6 +224,8 @@ private fun MainScreen(
             minuteTick++
         }
     }
+    // As the home app, Back must never close the app: it returns to the Drive screen instead.
+    BackHandler(enabled = true) { if (tab != "drive") tab = "drive" }
     if (tab == "drive") {
         val night = remember(themeMode, minuteTick) { themeMode.isNight() }
         DriveScreen(
@@ -243,6 +275,15 @@ private fun MainScreen(
                 ) {
                     UpdatePanel(updates, onOpenInstallSetting)
                     BigButton("Share log", onClick = onShareLog)
+                    Panel {
+                        Text("Home screen", color = Palette.TextDim, fontSize = 16.sp)
+                        Text(
+                            "Taycan Screen can be the box's home app, so it opens by itself after start-up.",
+                            color = Palette.Text, fontSize = 16.sp,
+                        )
+                        BigButton("Choose home app", onClick = onChooseHomeApp)
+                        BigButton("Open the box's launcher", onClick = onOpenBoxLauncher)
+                    }
                     ScreenPanel(readWindow, contentW, contentH, fullScreen, onToggleFullScreen)
                 }
                 LogViewer(Modifier.fillMaxSize())
