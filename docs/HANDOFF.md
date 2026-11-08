@@ -36,6 +36,8 @@ I work entirely from my iPhone. You can't reach the box directly, so:
 3. Add a diagnostic screen that reports the app's usable window size in px and dp and the screen density, so we can size the layout to the Porsche frame.
 4. Once 2 and 3 work, build Phase 1 from the brief: the Drive screen, left vehicle panel, dock, and day/night mode, sized to the measured window.
 5. Later: test whether an EQ can attach to Spotify's audio session on the box (gate G4) before building the Audio screen.
+6. Later: debug the box. "Box health" page: installed-app inventory (package, system/user, enabled, size), running services, RAM/storage, boot timing baseline. Needs a way to get long logs off the box first ("Send log to Claude" upload to a private log repo, proposed).
+7. Later: remove bloatware. User-installed apps via Uninstall (ACTION_DELETE, owner confirms); preinstalled apps via Disable in their Android settings page, only ones identified as safe (never car link, Bluetooth, GPS, 4G, audio); ADB only as a last resort (needs a computer or Android phone).
 
 ## Status log
 - 2026-11-08: Task 1 done in code: build/sign/release workflow, Check for update, Share log, log viewer, plus a Screen panel that logs window size and density (early part of task 3). CI compiles cleanly. Awaiting first install on the box. Car Scanner definitions not yet in /reference.
