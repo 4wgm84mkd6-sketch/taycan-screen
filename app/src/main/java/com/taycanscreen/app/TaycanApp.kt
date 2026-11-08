@@ -13,5 +13,11 @@ class TaycanApp : Application() {
                 "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT}), " +
                 "device ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
         )
+        // Boot timing: how long Android had been running when Taycan Screen started.
+        AppLog.info(
+            "boot",
+            "Android up ${android.os.SystemClock.elapsedRealtime() / 1000} s when Taycan Screen started " +
+                "(uptime excluding sleep ${android.os.SystemClock.uptimeMillis() / 1000} s)",
+        )
     }
 }

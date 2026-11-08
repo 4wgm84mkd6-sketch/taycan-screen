@@ -121,6 +121,7 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
                 conn = ElmConnection.open(device)
                 _status.value = _status.value.copy(state = LinkState.Initializing, detail = "Setting up adapter…")
                 initAdapter(conn)
+                AppLog.info("boot", "Car link live ${android.os.SystemClock.elapsedRealtime() / 1000} s after Android started")
                 _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car")
                 backoffMs = 2_000L
                 pollForever(conn)
