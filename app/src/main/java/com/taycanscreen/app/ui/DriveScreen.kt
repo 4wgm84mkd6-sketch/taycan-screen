@@ -221,11 +221,19 @@ private fun VehiclePanel(v: VehicleValues, link: LinkState, detail: String, c: D
                     )
                 }
             }
-            BatteryGlyph(v.soc, c)
-            Text(
-                " ${v.soc?.roundToInt() ?: DASH}%",
-                color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BatteryGlyph(v.soc, c)
+                    Text(
+                        " ${v.soc?.roundToInt() ?: DASH}%",
+                        color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Text(
+                    "${v.rangeMi?.roundToInt() ?: DASH} mi",
+                    color = c.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.02).em,
+                )
+            }
         }
         if (link != LinkState.Live && detail.isNotBlank()) {
             Text(detail, color = c.warn, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -240,28 +248,15 @@ private fun VehiclePanel(v: VehicleValues, link: LinkState, detail: String, c: D
             Text("MPH", color = c.textDim, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.14.em)
         }
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            Text(
-                "${v.rangeMi?.roundToInt() ?: DASH} mi",
-                color = c.text, fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.02).em, modifier = Modifier.weight(1f),
-            )
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    "Pack ${v.packMinF?.roundToInt() ?: DASH}–${v.packMaxF?.roundToInt() ?: DASH}°F",
-                    color = c.textDim, fontSize = 13.sp,
-                )
-                Text(
-                    when {
-                        v.kw == null -> "$DASH kW"
-                        v.kw < -0.5 -> "Using %.1f kW".format(-v.kw)
-                        v.kw > 0.5 -> "Charging %.1f kW".format(v.kw)
-                        else -> "Idle"
-                    },
-                    color = c.textDim, fontSize = 13.sp,
-                )
-            }
-        }
+        Text(
+            when {
+                v.kw == null -> "$DASH kW"
+                v.kw < -0.5 -> "Using %.1f kW".format(-v.kw)
+                v.kw > 0.5 -> "Charging / regen %.1f kW".format(v.kw)
+                else -> "Idle"
+            },
+            color = c.textDim, fontSize = 15.sp,
+        )
 
         Spacer(Modifier.weight(1f))
         NowPlayingCard(c, onOpenMusic)
@@ -352,11 +347,13 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
         }
     }
     val prefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
+    var gps by remember { mutableStateOf<String?>(null) }
+    var lastTouchAt by remember { mutableLongStateOf(0L) }
     var northUp by remember { mutableStateOf(prefs.getBoolean("north_up", false)) }
     val headingUp = rememberUpdatedState(!northUp)
     val locationOverlay = remember(locationGranted) {
         if (!locationGranted) null
-        else CarLocationOverlay(GpsMyLocationProvider(context), mapView) { headingUp.value }.apply {
+        else CarLocationOverlay(locationProvider(context), mapView, { headingUp.value }) { gps = it }.apply {
             val arrow = carArrowBitmap(context)
             setPersonIcon(arrow)
             setPersonAnchor(0.5f, 0.5f)
@@ -408,6 +405,30 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
         }
     }
 
+    // Touching the map stops "follow my position"; resume it 10 s after the last touch, like car navs do.
+    LaunchedEffect(locationOverlay) {
+        while (locationOverlay != null) {
+            delay(2_000)
+            if (!locationOverlay.isFollowLocationEnabled && System.currentTimeMillis() - lastTouchAt > 10_000) {
+                locationOverlay.enableFollowLocation()
+                AppLog.info("map", "Following the car again")
+            }
+        }
+    }
+    // Log how many fingers each map gesture uses (is multi-touch reaching the box at all?).
+    DisposableEffect(mapView) {
+        var maxFingers = 0
+        mapView.setOnTouchListener { _, e ->
+            lastTouchAt = System.currentTimeMillis()
+            maxFingers = maxOf(maxFingers, e.pointerCount)
+            if (e.actionMasked == android.view.MotionEvent.ACTION_UP || e.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
+                AppLog.info("map", "Touch gesture with up to $maxFingers finger(s)")
+                maxFingers = 0
+            }
+            false // let the map handle it as usual
+        }
+        onDispose { mapView.setOnTouchListener(null) }
+    }
     // Keep the sun calculation's position current while driving.
     LaunchedEffect(locationOverlay) {
         while (locationOverlay != null) {
@@ -468,6 +489,13 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
             }
         }
 
+        Text(
+            if (!locationGranted) "GPS: no permission" else gps ?: "GPS: searching…",
+            color = c.textDim, fontSize = 12.sp,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
+                .clip(RoundedCornerShape(6.dp)).background(c.panel.copy(alpha = 0.85f)).padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+
         if (!locationGranted) {
             Text(
                 "Allow location to show where you are",
@@ -491,12 +519,26 @@ private class CarLocationOverlay(
     provider: GpsMyLocationProvider,
     private val map: MapView,
     private val headingUp: () -> Boolean,
+    private val onStatus: (String) -> Unit,
 ) : MyLocationNewOverlay(provider, map) {
+    private var lastLogAt = 0L
+
     override fun onLocationChanged(location: Location?, source: IMyLocationProvider?) {
         super.onLocationChanged(location, source)
         location ?: return
         Sun.latitude = location.latitude
         Sun.longitude = location.longitude
+        val status = "GPS ±%d m · %s".format(location.accuracy.roundToInt(), location.provider ?: "?")
+        map.post { onStatus(status) }
+        val now = System.currentTimeMillis()
+        if (now - lastLogAt > 30_000) {
+            lastLogAt = now
+            AppLog.info(
+                "map",
+                "Fix from ${location.provider}: ±${location.accuracy.roundToInt()} m, " +
+                    "${"%.1f".format(location.speed * 2.23694)} mph, bearing ${if (location.hasBearing()) location.bearing.roundToInt() else -1}",
+            )
+        }
         // GPS bearing is only meaningful while moving; keep the last orientation when stopped.
         if (headingUp() && location.hasBearing() && location.speed > 1.5f) {
             val bearing = location.bearing
@@ -504,6 +546,25 @@ private class CarLocationOverlay(
         }
     }
 }
+
+/** Every location source the box offers (GPS, network, and the fused provider on Android 12+). */
+private fun locationProvider(context: Context): GpsMyLocationProvider =
+    GpsMyLocationProvider(context).apply {
+        clearLocationSources()
+        addLocationSource(android.location.LocationManager.GPS_PROVIDER)
+        addLocationSource(android.location.LocationManager.NETWORK_PROVIDER)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            addLocationSource(android.location.LocationManager.FUSED_PROVIDER)
+        }
+        locationUpdateMinTime = 1_000
+        locationUpdateMinDistance = 0f
+        val lm = context.getSystemService(android.location.LocationManager::class.java)
+        AppLog.info(
+            "map",
+            "Location providers on the box: ${lm?.allProviders} enabled: ${lm?.getProviders(true)} " +
+                "(location ${if (lm?.isLocationEnabled == true) "on" else "OFF"})",
+        )
+    }
 
 private fun applyCenterOffset(map: MapView, northUp: Boolean) {
     map.setMapCenterOffset(0, if (northUp) 0 else (map.height * 0.22f).toInt())
