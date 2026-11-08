@@ -14,7 +14,9 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
 - Every push to `main` triggers `.github/workflows/build.yml`: signed `assembleRelease`, versionCode =
   100 + run number, release tag `build-<versionCode>`, asset `taycan-screen.apk`. Don't rename the
   tag scheme or asset: the in-app updater (`update/Updater.kt`) depends on both.
-- Signing secrets: `SIGNING_KEYSTORE_BASE64`, `SIGNING_PASSWORD` (alias `taycan`). Never commit keys.
+- Signing: `signing/release.jks.enc` (AES-256 encrypted keystore) + repo secret `SIGNING_PASSWORD`
+  (alias `taycan`). Never commit an unencrypted key.
+- No Gradle wrapper in the repo (the GitHub connector can't upload binaries); CI pins Gradle 8.11.1.
 - The repo must stay public so the app can download releases without a token.
 - After pushing, check the Actions run succeeded before telling the owner a build is ready.
 - Package name `com.taycanscreen.app` is permanent; changing it breaks updates.

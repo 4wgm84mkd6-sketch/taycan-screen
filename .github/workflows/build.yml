@@ -33,41 +33,50 @@ jobs:
           java-version: "17"
 
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
 
-      - name: Decode signing key
+      - name: Decrypt signing key
+        id: key
         env:
-          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
-          if [ -z "$SIGNING_KEYSTORE_BASE64" ] || [ -z "$SIGNING_PASSWORD" ]; then
-            echo "::error::Signing secrets SIGNING_KEYSTORE_BASE64 and SIGNING_PASSWORD are not set. See README.md."
-            exit 1
+          if [ -z "$SIGNING_PASSWORD" ]; then
+            echo "::warning::Repository secret SIGNING_PASSWORD is not set yet, so nothing was built. See README.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          # signing/release.jks.enc is the release keystore, AES-256 encrypted with SIGNING_PASSWORD.
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -a \
+            -in signing/release.jks.enc -out "$RUNNER_TEMP/release.jks" -pass env:SIGNING_PASSWORD
           echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
           echo "SIGNING_STORE_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
           echo "SIGNING_KEY_PASSWORD=$SIGNING_PASSWORD" >> "$GITHUB_ENV"
           echo "SIGNING_KEY_ALIAS=taycan" >> "$GITHUB_ENV"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Build release APK
+        if: steps.key.outputs.ready == 'true'
         run: |
           VC=$((100 + VERSION_CODE))
           echo "VC=$VC" >> "$GITHUB_ENV"
-          ./gradlew --no-daemon assembleRelease -PversionCode=$VC -PgithubRepo=${{ github.repository }}
+          gradle --no-daemon assembleRelease -PversionCode=$VC -PgithubRepo=${{ github.repository }}
           cp app/build/outputs/apk/release/app-release.apk taycan-screen.apk
 
       - name: Verify signature
+        if: steps.key.outputs.ready == 'true'
         run: |
           APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
           "$APKSIGNER" verify --print-certs taycan-screen.apk
 
       - uses: actions/upload-artifact@v4
+        if: steps.key.outputs.ready == 'true'
         with:
           name: taycan-screen-build-${{ env.VC }}
           path: taycan-screen.apk
 
       - name: Publish GitHub Release
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: steps.key.outputs.ready == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

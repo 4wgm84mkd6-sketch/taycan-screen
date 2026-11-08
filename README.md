@@ -17,21 +17,19 @@ Everything is done from an iPhone; there is no computer in the loop.
 4. Test, tap **Share log**, and send the log (plus photos) back to Claude Code.
 
 The repository must be **public**: the app and the box's browser download releases without
-signing in to GitHub. Nothing secret lives in the code; the signing key is stored as
-repository secrets.
+signing in to GitHub. Nothing secret lives in the code in readable form.
 
-## Signing (one-time, already done by Claude Code)
+## Signing
 
 Every build is signed with the same release key, so updates install over the existing app.
-The key is stored in two repository secrets:
+The keystore is committed encrypted (AES-256) at `signing/release.jks.enc`; the workflow decrypts
+it with the repository secret `SIGNING_PASSWORD`, which is also the keystore and key password
+(key alias `taycan`). Without the secret the workflow builds nothing.
 
-| Secret | Contents |
-|---|---|
-| `SIGNING_KEYSTORE_BASE64` | The release keystore (PKCS12), base64-encoded. Key alias `taycan`. |
-| `SIGNING_PASSWORD` | Password for both the keystore and the key. |
-
-If these are ever lost, a new key can be made, but the app then has to be uninstalled once
+If the password is ever lost, a new key can be made, but the app then has to be uninstalled once
 and installed fresh from the browser (Android refuses an update signed with a different key).
+
+There is no Gradle wrapper in the repo; CI installs Gradle 8.11.1 itself.
 
 ## First install on the box (one time)
 
