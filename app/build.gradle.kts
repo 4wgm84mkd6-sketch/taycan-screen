@@ -10,6 +10,8 @@ val githubRepo = (project.findProperty("githubRepo") as String?) ?: ""
 // "Send log to Claude": the box signs in to the owner's GitHub App with a device code; only the App's
 // public Client ID ships in the app (gradle.properties: taycanLogClientId). No secret is built in.
 val logClientId = (project.findProperty("taycanLogClientId") as String?)?.trim() ?: ""
+// Spotify App Remote: public Client ID of the owner's Spotify developer app (gradle.properties).
+val spotifyClientId = (project.findProperty("spotifyClientId") as String?)?.trim() ?: ""
 val logRepo = if (githubRepo.contains("/")) githubRepo.substringBefore("/") + "/taycan-logs" else ""
 
 // Release signing comes from environment variables set by the GitHub Actions workflow
@@ -30,6 +32,8 @@ android {
         buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
         buildConfigField("String", "LOG_REPO", "\"$logRepo\"")
         buildConfigField("String", "LOG_CLIENT_ID", "\"$logClientId\"")
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
+        buildConfigField("String", "SPOTIFY_REDIRECT_URI", "\"taycanscreen://spotify-callback\"")
     }
 
     signingConfigs {
@@ -82,5 +86,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // Spotify App Remote SDK 0.8.0 (github.com/spotify/android-sdk, Apache 2.0; see libs/SPOTIFY-SDK-*).
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
+    implementation("com.google.code.gson:gson:2.11.0")
     testImplementation("junit:junit:4.13.2")
 }

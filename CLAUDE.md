@@ -24,6 +24,10 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   (installed only on taycan-logs, Contents R/W). Only the App's public Client ID ships in the APK
   (`taycanLogClientId` in gradle.properties). Never build a token or secret into the APK.
   Files over 256 KB (gzipped) arrive as `<name>.gz.partNN`: join them in order (`cat`) before `zcat`.
+- Spotify: App Remote SDK 0.8.0 (`app/libs/`, Apache 2.0) with the owner's Spotify developer app; its
+  public Client ID goes in gradle.properties (`spotifyClientId`), redirect URI
+  `taycanscreen://spotify-callback`, package `com.taycanscreen.app`, signing SHA-1
+  `11:70:96:88:51:D9:AA:37:E7:68:C2:BD:49:72:A4:1F:31:A0:F1:91`.
 - After pushing, check the Actions run succeeded before telling the owner a build is ready.
 - Package name `com.taycanscreen.app` is permanent; changing it breaks updates.
 

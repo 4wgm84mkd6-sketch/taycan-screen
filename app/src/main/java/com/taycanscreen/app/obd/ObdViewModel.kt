@@ -45,6 +45,7 @@ object ObdEngine {
         private const val TAG = "obd"
         private const val PREFS = "obd"
         private const val KEY_ADAPTER = "adapter_address"
+        private const val KEY_CHANNEL1 = "connect_channel1"
         /** Re-enter the extended session if the module hasn't been asked anything for this long. */
         private const val SESSION_REFRESH_MS = 3_000L
         /** Full polling cycles with no answer from the car before we stop talking to it. */
@@ -151,7 +152,7 @@ object ObdEngine {
     }
 
     private suspend fun runLoop() {
-        var backoffMs = 2_000L
+        var backoffMs = 1_000L
         while (currentCoroutineContext().isActive) {
             val device = findAdapter()
             if (device == null) {
@@ -163,12 +164,14 @@ object ObdEngine {
             var conn: ElmConnection? = null
             try {
                 _status.value = _status.value.copy(state = LinkState.Connecting, detail = "Connecting to $name…", adapterName = name)
-                conn = ElmConnection.open(device)
+                conn = ElmConnection.open(device, prefs.getBoolean(KEY_CHANNEL1, true)) { ch1 ->
+                    prefs.edit().putBoolean(KEY_CHANNEL1, ch1).apply()
+                }
                 _status.value = _status.value.copy(state = LinkState.Initializing, detail = "Setting up adapter…")
                 initAdapter(conn)
                 AppLog.info("boot", "Car link live ${android.os.SystemClock.elapsedRealtime() / 1000} s after Android started")
                 _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car")
-                backoffMs = 2_000L
+                backoffMs = 1_000L
                 pollForever(conn)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -194,7 +197,7 @@ object ObdEngine {
     }
 
     private fun initAdapter(c: ElmConnection) {
-        c.send("ATZ", 5_000)       // reset the adapter (adapter only, not the car)
+        c.send("ATD")              // adapter settings back to defaults (adapter only; faster than a full ATZ reset)
         c.send("ATE0")             // echo off
         c.send("ATL0")             // no linefeeds
         c.send("ATS0")             // no spaces

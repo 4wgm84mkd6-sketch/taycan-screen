@@ -56,6 +56,10 @@ object DesignIcons {
     val Moon = stroke("moon", 1.9f, "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z")
     val Auto = stroke("auto", 1.9f, circle(12f, 12f, 9f), "M12 3v18", "M12 3a9 9 0 0 1 0 18z")
     val Play = filled("play", "M7 4l13 8-13 8z")
+    val Pause = filled("pause", "M6 4h4v16H6z", "M14 4h4v16h-4z")
+    val Previous = filled("previous", "M19 20L9 12l10-8z", "M4 5h2.5v14H4z")
+    val Next = filled("next", "M5 4l10 8-10 8z", "M17.5 5H20v14h-2.5z")
+    val Close = stroke("close", 2.2f, "M6 6l12 12", "M18 6L6 18")
     /** Compass with "N": map is north-up. */
     val NorthUp = stroke("north-up", 1.9f, circle(12f, 12f, 9f), "M9 15.5V8.5l6 7V8.5")
     /** Compass with arrow: map turns with the car. */

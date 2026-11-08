@@ -35,16 +35,25 @@ class ElmConnection private constructor(
 
         fun isAllowed(cmd: String): Boolean = ALLOWED.any { it.matches(cmd) }
 
+        /**
+         * Connects to the adapter. [channelFirst]: try RFCOMM channel 1 directly before the standard
+         * service lookup (on this MX+ the lookup always fails after ~4.5 s). [onMethod] reports which
+         * method worked so the caller can try it first next time.
+         */
         @SuppressLint("MissingPermission")
-        fun open(device: BluetoothDevice): ElmConnection {
-            AppLog.info(TAG, "Connecting to ${device.name} (${device.address})")
-            val socket = try {
-                device.createRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
-            } catch (first: IOException) {
-                AppLog.warn(TAG, "Standard connect failed (${first.message}); trying channel 1")
+        fun open(device: BluetoothDevice, channelFirst: Boolean, onMethod: (channel1: Boolean) -> Unit): ElmConnection {
+            AppLog.info(TAG, "Connecting to ${device.name} (${device.address})${if (channelFirst) " via channel 1" else ""}")
+            fun standard() = device.createRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
+            fun channel1(): BluetoothSocket {
                 // Common fallback for SPP adapters whose SDP record isn't found.
                 val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                (m.invoke(device, 1) as BluetoothSocket).also { it.connect() }
+                return (m.invoke(device, 1) as BluetoothSocket).also { it.connect() }
+            }
+            val socket = try {
+                if (channelFirst) channel1().also { onMethod(true) } else standard().also { onMethod(false) }
+            } catch (first: Exception) {
+                AppLog.warn(TAG, "${if (channelFirst) "Channel 1" else "Standard"} connect failed (${first.message}); trying the other way")
+                if (channelFirst) standard().also { onMethod(false) } else channel1().also { onMethod(true) }
             }
             AppLog.info(TAG, "Bluetooth connected")
             return ElmConnection(socket, socket.inputStream, socket.outputStream)

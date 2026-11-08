@@ -61,9 +61,11 @@ import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.log.LogSharer
 import com.taycanscreen.app.log.GitHubAuth
 import com.taycanscreen.app.log.LogUploader
+import com.taycanscreen.app.music.SpotifyController
 import com.taycanscreen.app.obd.Discovery
 import com.taycanscreen.app.obd.LinkState
 import com.taycanscreen.app.obd.ObdViewModel
+import com.taycanscreen.app.ui.BoxPanel
 import com.taycanscreen.app.ui.DriveColors
 import com.taycanscreen.app.ui.DriveScreen
 import com.taycanscreen.app.ui.LivePanel
@@ -170,6 +172,7 @@ class MainActivity : ComponentActivity() {
         super.onPostCreate(savedInstanceState)
         // Start reading the car straight away when the app opens.
         requestBluetooth()
+        SpotifyController.start(this)
     }
 
     override fun onResume() {
@@ -266,8 +269,11 @@ private fun MainScreen(
                 TabButton("Drive", false) { tab = "drive" }
                 TabButton("Vehicle", tab == "live") { tab = "live" }
                 TabButton("Setup", tab == "setup") { tab = "setup" }
+                TabButton("Box", tab == "box") { tab = "box" }
             }
-            if (tab == "live") {
+            if (tab == "box") {
+                BoxPanel(Modifier.fillMaxSize())
+            } else if (tab == "live") {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     LivePanel(obd, onRequestBluetooth, Modifier.fillMaxWidth())
                     LogViewer(Modifier.fillMaxWidth().weight(1f))

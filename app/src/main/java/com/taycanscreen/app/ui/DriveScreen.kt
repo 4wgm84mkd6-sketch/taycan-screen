@@ -138,15 +138,32 @@ fun DriveScreen(
         }
     }
     val v = VehicleValues.from(readings, now)
+    val context = LocalContext.current
+    var musicOpen by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
         Row(Modifier.fillMaxWidth().weight(1f)) {
-            VehiclePanel(v, status.state, status.detail, colors, Modifier.width(PanelWidth).fillMaxHeight())
+            VehiclePanel(v, status.state, status.detail, colors, { musicOpen = true }, Modifier.width(PanelWidth).fillMaxHeight())
             Box(Modifier.width(1.dp).fillMaxHeight().background(colors.border))
-            MapArea(v, colors, locationGranted, Modifier.weight(1f).fillMaxHeight())
+            // The map keeps running underneath while Music is open, so it's current when you close it.
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                MapArea(v, colors, locationGranted, Modifier.fillMaxSize())
+                if (musicOpen) {
+                    MusicPanel(
+                        colors,
+                        onClose = { musicOpen = false },
+                        onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
-        Dock(colors, themeMode, onCycleTheme, onOpenVehicle, onOpenSetup, Modifier.fillMaxWidth().height(DockHeight))
+        Dock(
+            colors, themeMode, onCycleTheme, onOpenVehicle, onOpenSetup,
+            onOpenMusic = { musicOpen = !musicOpen },
+            modifier = Modifier.fillMaxWidth().height(DockHeight),
+        )
     }
 }
 
@@ -183,7 +200,7 @@ private data class VehicleValues(
 }
 
 @Composable
-private fun VehiclePanel(v: VehicleValues, link: LinkState, detail: String, c: DriveColors, modifier: Modifier) {
+private fun VehiclePanel(v: VehicleValues, link: LinkState, detail: String, c: DriveColors, onOpenMusic: () -> Unit, modifier: Modifier) {
     Column(
         modifier.background(c.panel).padding(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -234,12 +251,20 @@ private fun VehiclePanel(v: VehicleValues, link: LinkState, detail: String, c: D
                     "Pack ${v.packMinF?.roundToInt() ?: DASH}–${v.packMaxF?.roundToInt() ?: DASH}°F",
                     color = c.textDim, fontSize = 13.sp,
                 )
-                Text("${v.volts?.roundToInt() ?: DASH} V", color = c.textDim, fontSize = 13.sp)
+                Text(
+                    when {
+                        v.kw == null -> "$DASH kW"
+                        v.kw < -0.5 -> "Using %.1f kW".format(-v.kw)
+                        v.kw > 0.5 -> "Charging %.1f kW".format(v.kw)
+                        else -> "Idle"
+                    },
+                    color = c.textDim, fontSize = 13.sp,
+                )
             }
         }
 
         Spacer(Modifier.weight(1f))
-        PowerCard(v.kw, c)
+        NowPlayingCard(c, onOpenMusic)
     }
 }
 
@@ -532,6 +557,7 @@ private fun Dock(
     onCycleTheme: () -> Unit,
     onOpenVehicle: () -> Unit,
     onOpenSetup: () -> Unit,
+    onOpenMusic: () -> Unit,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
@@ -545,9 +571,7 @@ private fun Dock(
             DockButton(DesignIcons.Navigate, "Navigate", c, tint = c.accent) {
                 launchFirst(context, "Google Maps", "com.google.android.apps.maps", "com.waze")
             }
-            DockButton(DesignIcons.Media, "Music", c) {
-                launchFirst(context, "Spotify", "com.spotify.music", "com.google.android.apps.youtube.music")
-            }
+            DockButton(DesignIcons.Media, "Music", c, onClick = onOpenMusic)
             val themeIcon = when (themeMode) {
                 ThemeMode.Auto -> DesignIcons.Auto
                 ThemeMode.Day -> DesignIcons.Sun
