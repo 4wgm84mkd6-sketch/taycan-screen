@@ -156,13 +156,25 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun pollForever(c: ElmConnection) {
         var header: String? = null
+        var customFlowControl = false
+        var cycle = 0L
         val lastSessionAt = HashMap<String, Long>()
         while (currentCoroutineContext().isActive) {
             for (sig in Taycan.POLLED) {
+                if (cycle % sig.pollEvery != 0L) continue
                 val cmd = sig.command
                 if (header != cmd.hdr) {
                     c.send("ATSH${cmd.hdr}")
                     c.send("ATCRA${cmd.rax}")
+                    if (cmd.flowControl) {
+                        // Flow control frames for multi-frame replies go to this module's own id.
+                        c.send("ATFCSH${cmd.hdr}")
+                        c.send("ATFCSD300000")
+                        c.send("ATFCSM1")
+                    } else if (customFlowControl) {
+                        c.send("ATFCSM0")
+                    }
+                    customFlowControl = cmd.flowControl
                     header = cmd.hdr
                 }
                 if (cmd.extendedSession) {
@@ -182,7 +194,8 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 record(sig, result)
             }
-            delay(200)
+            cycle++
+            delay(150)
         }
     }
 

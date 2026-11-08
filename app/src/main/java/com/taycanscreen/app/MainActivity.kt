@@ -2,6 +2,7 @@ package com.taycanscreen.app
 
 import android.Manifest
 import android.os.Build
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
@@ -37,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,7 +55,11 @@ import androidx.compose.ui.unit.sp
 import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.log.LogSharer
 import com.taycanscreen.app.obd.ObdViewModel
+import com.taycanscreen.app.ui.DriveColors
+import com.taycanscreen.app.ui.DriveScreen
 import com.taycanscreen.app.ui.LivePanel
+import com.taycanscreen.app.ui.ThemeMode
+import com.taycanscreen.app.ui.isNight
 import com.taycanscreen.app.ui.Palette
 import com.taycanscreen.app.ui.TaycanTheme
 import com.taycanscreen.app.ui.WindowNumbers
@@ -71,25 +77,54 @@ class MainActivity : ComponentActivity() {
     // Phase 1 plan: run full screen (1602×720) with the box's dock hidden; toggle on the Setup tab.
     private val fullScreen = mutableStateOf(true)
 
-    private val btPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        AppLog.info("obd", "Bluetooth permission ${if (granted) "granted" else "denied"}")
-        if (granted) obd.start()
+    private val locationGranted = mutableStateOf(false)
+    private val themeMode = mutableStateOf(ThemeMode.Auto)
+
+    private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        AppLog.info("app", "Permission answers: $result")
+        refreshLocation()
+        if (obd.hasPermission()) obd.start()
     }
 
-    private fun requestBluetooth() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) btPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
-        else obd.start()
+    private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+    private fun refreshLocation() {
+        locationGranted.value = granted(Manifest.permission.ACCESS_FINE_LOCATION) ||
+            granted(Manifest.permission.ACCESS_COARSE_LOCATION)
     }
+
+    /** Asks for Bluetooth (to reach the OBD adapter) and location (for the map) if not granted yet. */
+    private fun requestBluetooth() {
+        if (obd.hasPermission()) obd.start()
+        val wanted = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(Manifest.permission.BLUETOOTH_CONNECT)
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }.filterNot(::granted)
+        if (wanted.isNotEmpty()) permissions.launch(wanted.toTypedArray())
+    }
+
+    private val uiPrefs by lazy { getSharedPreferences("ui", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        themeMode.value = runCatching { ThemeMode.valueOf(uiPrefs.getString("theme", "Auto")!!) }.getOrDefault(ThemeMode.Auto)
+        refreshLocation()
         setContent {
             TaycanTheme {
                 MainScreen(
                     updates = updates,
                     obd = obd,
                     onRequestBluetooth = { requestBluetooth() },
+                    themeMode = themeMode.value,
+                    onCycleTheme = {
+                        val next = themeMode.value.next()
+                        themeMode.value = next
+                        uiPrefs.edit().putString("theme", next.name).apply()
+                        AppLog.info("ui", "Day/night mode: ${next.label()}")
+                    },
+                    locationGranted = locationGranted.value,
                     fullScreen = fullScreen.value,
                     onToggleFullScreen = {
                         val on = !fullScreen.value
@@ -122,12 +157,13 @@ class MainActivity : ComponentActivity() {
     override fun onPostCreate(savedInstanceState: Bundle?) {
         super.onPostCreate(savedInstanceState)
         // Start reading the car straight away when the app opens.
-        if (obd.hasPermission()) obd.start() else requestBluetooth()
+        requestBluetooth()
     }
 
     override fun onResume() {
         super.onResume()
         updates.onResume()
+        refreshLocation()
         if (fullScreen.value) setFullScreen(true)
     }
 
@@ -141,12 +177,36 @@ private fun MainScreen(
     updates: UpdateViewModel,
     obd: ObdViewModel,
     onRequestBluetooth: () -> Unit,
+    themeMode: ThemeMode,
+    onCycleTheme: () -> Unit,
+    locationGranted: Boolean,
     fullScreen: Boolean,
     onToggleFullScreen: () -> Unit,
     readWindow: () -> WindowNumbers,
     onShareLog: () -> Unit,
     onOpenInstallSetting: () -> Unit,
 ) {
+    var tab by rememberSaveable { mutableStateOf("drive") }
+    var minuteTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            minuteTick++
+        }
+    }
+    if (tab == "drive") {
+        val night = remember(themeMode, minuteTick) { themeMode.isNight() }
+        DriveScreen(
+            obd = obd,
+            colors = if (night) DriveColors.Night else DriveColors.Day,
+            themeMode = themeMode,
+            locationGranted = locationGranted,
+            onCycleTheme = onCycleTheme,
+            onOpenVehicle = { tab = "live" },
+            onOpenSetup = { tab = "setup" },
+        )
+        return
+    }
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
@@ -155,7 +215,6 @@ private fun MainScreen(
     ) {
         val contentW = maxWidth
         val contentH = maxHeight
-        var tab by rememberSaveable { mutableStateOf("live") }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(
                 Modifier
@@ -165,7 +224,8 @@ private fun MainScreen(
             ) {
                 Text("Taycan Screen", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text("Build ${BuildConfig.VERSION_CODE}", color = Palette.TextDim, fontSize = 16.sp)
-                TabButton("Live", tab == "live") { tab = "live" }
+                TabButton("Drive", false) { tab = "drive" }
+                TabButton("Vehicle", tab == "live") { tab = "live" }
                 TabButton("Setup", tab == "setup") { tab = "setup" }
             }
             if (tab == "live") {

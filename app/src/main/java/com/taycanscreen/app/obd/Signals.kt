@@ -13,6 +13,8 @@ data class ObdCommand(
     val did: String,
     /** OBDb `din: "03"`: module must be in the extended diagnostic session (10 03) first. */
     val extendedSession: Boolean,
+    /** OBDb `fcm1` / `fc=1`: multi-frame replies need flow control sent to [hdr] (ATFCSH/ATFCSD/ATFCSM1). */
+    val flowControl: Boolean = false,
 )
 
 /** OBDb `fmt`: [len] bits at bit [bix] of the data after the DID, value = raw * mul / div + add. */
@@ -29,7 +31,12 @@ data class Signal(
     val nullMin: Double? = null,
     val nullMax: Double? = null,
     val unit: String,
+    /** Poll on every Nth cycle (slow-changing values). */
+    val pollEvery: Int = 1,
 ) {
+    /** A reading older than this is shown as "—". */
+    val staleMs: Long get() = 5_000L * pollEvery
+
     /** Decodes [data] (bytes after 62 + DID). Null if too short or a "no data" value. */
     fun decode(data: ByteArray): Double? {
         if (bix + len > data.size * 8) return null
@@ -52,6 +59,8 @@ object Taycan {
     private val ENG_VSS = ObdCommand("7E0", "7E8", "F40D", extendedSession = false)
     private val BMS_VOLT = ObdCommand("7E5", "7ED", "1801", extendedSession = false)
     private val BMS_VOLT_1818 = ObdCommand("7E5", "7ED", "1818", extendedSession = false)
+    private val ENG_AAT = ObdCommand("7E0", "7E8", "1004", extendedSession = false)
+    private val GW_RANGE = ObdCommand("710", "77A", "2AB6", extendedSession = false, flowControl = true)
     private val BMS_CURR = ObdCommand("7E5", "7ED", "1802", extendedSession = true)
     private val BMS_T_MAX = ObdCommand("7E5", "7ED", "1E0E", extendedSession = true)
     private val BMS_T_MIN = ObdCommand("7E5", "7ED", "1E0F", extendedSession = true)
@@ -72,6 +81,16 @@ object Taycan {
     val PACK_T_MIN = Signal("TAYCAN_BMS_T_MIN", "HV battery temperature, minimum", BMS_T_MIN,
         len = 8, add = -100.0, unit = "°C")
 
+    val AMBIENT = Signal("TAYCAN_AAT", "Ambient temperature", ENG_AAT,
+        len = 16, div = 128.0, signed = true, unit = "°C", pollEvery = 10)
+    /** OBDb unit: miles (range remaining as the car displays it). */
+    val RANGE = Signal("TAYCAN_RANGE", "Range remaining", GW_RANGE,
+        len = 16, unit = "mi", pollEvery = 5)
+
     /** Polled in this order; grouped by module so the header changes as little as possible. */
-    val POLLED = listOf(SOC_DISPLAY, SPEED, HV_VOLTAGE, HV_VOLTAGE_1818, HV_CURRENT, PACK_T_MAX, PACK_T_MIN)
+    val POLLED = listOf(
+        SOC_DISPLAY, SPEED, AMBIENT,
+        HV_VOLTAGE, HV_VOLTAGE_1818, HV_CURRENT, PACK_T_MAX, PACK_T_MIN,
+        RANGE,
+    )
 }

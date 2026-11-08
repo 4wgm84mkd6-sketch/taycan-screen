@@ -61,6 +61,15 @@ class TaycanDecodeTest {
         check(Taycan.PACK_T_MIN, "7ED05621E0F7A0B", 22.0)           // 2023
     }
 
+    @Test fun rangeMultiFrame() {
+        check(Taycan.RANGE, "77A100A622AB6002300\r77A212307FD00AAAAAA", 35.0)   // 2025
+        check(Taycan.RANGE, "77A100A622AB6002F00\r77A212F07FD00AAAAAA", 47.0)   // 2025
+    }
+
+    @Test fun ambient() {
+        check(Taycan.AMBIENT, "7E8056210040000", 0.0)               // 2025
+    }
+
     @Test fun elmErrorsAndOtherModules() {
         assertTrue(IsoTp.parse("NO DATA", "7ED") is IsoTp.Result.Failure)
         assertTrue(IsoTp.parse("CAN ERROR", "7ED") is IsoTp.Result.Failure)
@@ -86,6 +95,7 @@ class TaycanDecodeTest {
         assertTrue(ElmConnection.isAllowed("ATSH7E5"))
         assertTrue(ElmConnection.isAllowed("2208D2"))
         assertTrue(ElmConnection.isAllowed("1003"))
+        assertTrue(ElmConnection.isAllowed("ATFCSD300000"))
         assertFalse(ElmConnection.isAllowed("1101"))    // ECU reset
         assertFalse(ElmConnection.isAllowed("1002"))    // programming session
         assertFalse(ElmConnection.isAllowed("2E0101"))  // write data

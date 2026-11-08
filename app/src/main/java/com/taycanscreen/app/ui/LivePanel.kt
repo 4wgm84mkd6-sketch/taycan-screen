@@ -45,7 +45,10 @@ fun LivePanel(obd: ObdViewModel, onRequestPermission: () -> Unit, modifier: Modi
             delay(500)
         }
     }
-    fun fresh(id: String): Reading? = readings[id]?.takeIf { now - it.at <= ObdViewModel.STALE_MS }
+    fun fresh(id: String): Reading? {
+        val stale = Taycan.POLLED.firstOrNull { it.id == id }?.staleMs ?: 5_000L
+        return readings[id]?.takeIf { now - it.at <= stale }
+    }
     fun value(id: String): Double? = fresh(id)?.value
 
     val soc = value(Taycan.SOC_DISPLAY.id)
