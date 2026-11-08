@@ -422,17 +422,69 @@ private fun MapArea(v: VehicleValues, c: DriveColors, locationGranted: Boolean, 
             }
         }
     }
-    // Log how many fingers each map gesture uses (is multi-touch reaching the box at all?).
+    // The car passes only ONE touch point to the box (logs: every gesture had 1 finger), so pinch
+    // can't work. One-finger zoom instead, like Google Maps: double-tap and slide (down = in, up = out);
+    // a plain double-tap zooms in one step. Finger counts are still logged.
     DisposableEffect(mapView) {
+        val density = context.resources.displayMetrics.density
         var maxFingers = 0
+        var downAt = 0L
+        var downX = 0f
+        var downY = 0f
+        var lastTapUpAt = 0L
+        var lastTapX = 0f
+        var lastTapY = 0f
+        var zoomDrag = false
+        var moved = false
+        var startZoom = 0.0
         mapView.setOnTouchListener { _, e ->
             lastTouchAt = System.currentTimeMillis()
             maxFingers = maxOf(maxFingers, e.pointerCount)
-            if (e.actionMasked == android.view.MotionEvent.ACTION_UP || e.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
-                AppLog.info("map", "Touch gesture with up to $maxFingers finger(s)")
-                maxFingers = 0
+            var consumed = false
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    downAt = e.eventTime
+                    downX = e.x
+                    downY = e.y
+                    val near = kotlin.math.hypot(e.x - lastTapX, e.y - lastTapY) < 60 * density
+                    if (e.eventTime - lastTapUpAt < 350 && near) {
+                        zoomDrag = true
+                        moved = false
+                        startZoom = mapView.zoomLevelDouble
+                        consumed = true
+                    }
+                }
+                android.view.MotionEvent.ACTION_MOVE -> if (zoomDrag) {
+                    val dy = e.y - downY
+                    if (kotlin.math.abs(dy) > 8 * density) moved = true
+                    if (moved) {
+                        val z = (startZoom + dy / (120 * density)).coerceIn(mapView.minZoomLevel, mapView.maxZoomLevel)
+                        mapView.controller.setZoom(z)
+                    }
+                    consumed = true
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    if (zoomDrag) {
+                        if (!moved && e.actionMasked == android.view.MotionEvent.ACTION_UP) mapView.controller.zoomIn()
+                        AppLog.info("map", if (moved) "One-finger zoom to %.1f".format(mapView.zoomLevelDouble) else "Double-tap zoom in")
+                        zoomDrag = false
+                        lastTapUpAt = 0L
+                        consumed = true
+                    } else {
+                        val isTap = e.eventTime - downAt < 250 && kotlin.math.hypot(e.x - downX, e.y - downY) < 20 * density
+                        if (isTap) {
+                            lastTapUpAt = e.eventTime
+                            lastTapX = e.x
+                            lastTapY = e.y
+                        } else {
+                            lastTapUpAt = 0L
+                        }
+                    }
+                    AppLog.info("map", "Touch gesture with up to $maxFingers finger(s)")
+                    maxFingers = 0
+                }
             }
-            false // let the map handle it as usual
+            consumed
         }
         onDispose { mapView.setOnTouchListener(null) }
     }
