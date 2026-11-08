@@ -26,7 +26,7 @@ import kotlinx.coroutines.withContext
 /** Latest decoded value of one signal. [value] null = the car answered but with no usable data. */
 data class Reading(val value: Double?, val raw: String, val at: Long)
 
-enum class LinkState { Stopped, NeedsPermission, BluetoothOff, ChooseAdapter, Connecting, Initializing, Live, Retrying }
+enum class LinkState { Stopped, NeedsPermission, BluetoothOff, ChooseAdapter, Connecting, Initializing, Live, CarAsleep, Retrying }
 
 data class ObdStatus(
     val state: LinkState = LinkState.Stopped,
@@ -44,6 +44,12 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
         const val STALE_MS = 5_000L
         /** Re-enter the extended session if the module hasn't been asked anything for this long. */
         private const val SESSION_REFRESH_MS = 3_000L
+        /** Full polling cycles with no answer from the car before we stop talking to it. */
+        private const val QUIET_CYCLES_TO_SLEEP = 5
+        /** While the car is off, check only the adapter's 12 V reading (no CAN traffic) this often. */
+        private const val ASLEEP_CHECK_MS = 30_000L
+        /** 12 V at or above this means the car's DC-DC converter is charging, i.e. the car is on. */
+        private const val CAR_ON_VOLTS = 13.0
     }
 
     private val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -167,7 +173,26 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
         var customFlowControl = false
         var cycle = 0L
         val lastSessionAt = HashMap<String, Long>()
+        var quietCycles = 0
+        var asleepBaseline: Double? = null
         while (currentCoroutineContext().isActive) {
+            if (quietCycles >= QUIET_CYCLES_TO_SLEEP) {
+                // Car is off: send nothing onto the car's network, so its modules can sleep and the
+                // 12 V battery isn't drained. Only read the adapter's own voltage measurement.
+                val volts = adapterVolts(c)
+                if (asleepBaseline == null) asleepBaseline = volts
+                val base = asleepBaseline
+                if (volts != null && (volts >= CAR_ON_VOLTS || (base != null && volts - base >= 0.4))) {
+                    AppLog.info(TAG, "12 V at %.1f V: car looks switched on, resuming".format(volts))
+                    quietCycles = 0
+                    asleepBaseline = null
+                    _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car")
+                    continue
+                }
+                delay(ASLEEP_CHECK_MS)
+                continue
+            }
+            var answered = false
             for (sig in Taycan.POLLED) {
                 if (cycle % sig.pollEvery != 0L) continue
                 val cmd = sig.command
@@ -201,11 +226,26 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
                     lastSessionAt[cmd.hdr] = System.currentTimeMillis()
                 }
                 record(sig, result)
+                if (result is IsoTp.Result.Payload && result.bytes.firstOrNull() == 0x62.toByte()) answered = true
+            }
+            if (answered) {
+                quietCycles = 0
+            } else if (++quietCycles == QUIET_CYCLES_TO_SLEEP) {
+                AppLog.info(TAG, "Car not answering for $QUIET_CYCLES_TO_SLEEP cycles: pausing requests (car off?)")
+                _readings.value = emptyMap()
+                _status.value = _status.value.copy(
+                    state = LinkState.CarAsleep,
+                    detail = "The car isn't answering (switched off?). Paused so the car can sleep; resumes when it's on.",
+                )
             }
             cycle++
             delay(150)
         }
     }
+
+    /** The adapter's measurement of the 12 V supply at the OBD port ("ATRV" → "12.6V"). Adapter-only. */
+    private fun adapterVolts(c: ElmConnection): Double? =
+        Regex("""(\d+(?:\.\d+)?)\s*V""").find(c.send("ATRV"))?.groupValues?.get(1)?.toDoubleOrNull()
 
     private fun enterSession(c: ElmConnection, cmd: ObdCommand) {
         val r = IsoTp.parse(c.send("1003"), cmd.rax)
