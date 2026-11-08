@@ -66,6 +66,15 @@ class TaycanDecodeTest {
         check(Taycan.RANGE, "77A100A622AB6002F00\r77A212F07FD00AAAAAA", 47.0)   // 2025
     }
 
+    @Test fun gear() {
+        // Replies seen during the 2026-11-08 discovery test.
+        assertEquals("P", Taycan.gearLetter(decode(Taycan.GEAR, "7E804620884 05".replace(" ", ""))))
+        assertEquals("R", Taycan.gearLetter(decode(Taycan.GEAR, "7E80462088406")))
+        assertEquals("N", Taycan.gearLetter(decode(Taycan.GEAR, "7E80462088407")))
+        assertEquals("D", Taycan.gearLetter(decode(Taycan.GEAR, "7E80462088408")))
+        assertNull(Taycan.gearLetter(3.0))
+    }
+
     @Test fun ambient() {
         check(Taycan.AMBIENT, "7E8056210040000", 0.0)               // 2025
     }

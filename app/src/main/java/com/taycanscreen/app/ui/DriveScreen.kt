@@ -160,6 +160,7 @@ private data class VehicleValues(
     val kw: Double?,
     val packMinF: Double?,
     val packMaxF: Double?,
+    val gear: String?,
 ) {
     companion object {
         fun from(r: Map<String, Reading>, now: Long): VehicleValues {
@@ -175,6 +176,7 @@ private data class VehicleValues(
                 kw = if (volts != null && amps != null) volts * amps / 1000.0 else null,
                 packMinF = r.fresh(Taycan.PACK_T_MIN, now)?.let(::cToF),
                 packMaxF = r.fresh(Taycan.PACK_T_MAX, now)?.let(::cToF),
+                gear = Taycan.gearLetter(r.fresh(Taycan.GEAR, now)),
             )
         }
     }
@@ -188,11 +190,20 @@ private fun VehiclePanel(v: VehicleValues, link: LinkState, detail: String, c: D
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             val live = link == LinkState.Live
-            Box(Modifier.size(10.dp).clip(CircleShape).background(if (live) c.good else c.warn))
-            Text(
-                if (live) "  Car connected" else "  Connecting to car…",
-                color = c.textDim, fontSize = 14.sp, modifier = Modifier.weight(1f),
-            )
+            Box(Modifier.size(8.dp).clip(CircleShape).background(if (live) c.good else c.warn))
+            Spacer(Modifier.width(12.dp))
+            // Gear row as in the design: current gear bold, the others faint.
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                listOf("P", "R", "N", "D").forEach { g ->
+                    val current = g == v.gear
+                    Text(
+                        g,
+                        color = if (current) c.text else c.textFaint.copy(alpha = 0.55f),
+                        fontSize = if (current) 20.sp else 17.sp,
+                        fontWeight = if (current) FontWeight.Bold else FontWeight.Medium,
+                    )
+                }
+            }
             BatteryGlyph(v.soc, c)
             Text(
                 " ${v.soc?.roundToInt() ?: DASH}%",

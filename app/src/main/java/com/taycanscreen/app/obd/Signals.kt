@@ -59,6 +59,8 @@ object Taycan {
     private val ENG_VSS = ObdCommand("7E0", "7E8", "F40D", extendedSession = false)
     private val BMS_VOLT = ObdCommand("7E5", "7ED", "1801", extendedSession = false)
     private val BMS_VOLT_1818 = ObdCommand("7E5", "7ED", "1818", extendedSession = false)
+    /** Found by the owner-approved discovery test (2026-11-08), not in OBDb: gear selector. */
+    private val ENG_GEAR = ObdCommand("7E0", "7E8", "0884", extendedSession = false)
     private val ENG_AAT = ObdCommand("7E0", "7E8", "1004", extendedSession = false)
     private val GW_RANGE = ObdCommand("710", "77A", "2AB6", extendedSession = false, flowControl = true)
     private val BMS_CURR = ObdCommand("7E5", "7ED", "1802", extendedSession = true)
@@ -81,6 +83,20 @@ object Taycan {
     val PACK_T_MIN = Signal("TAYCAN_BMS_T_MIN", "HV battery temperature, minimum", BMS_T_MIN,
         len = 8, add = -100.0, unit = "°C")
 
+    /**
+     * Gear selector position, from discovery (not OBDb): 5 = P, 6 = R, 7 = N, 8 = D. Seen steady in each
+     * gear and changing exactly at each shift; 7E0 22 0898 mirrors it as 8/7/6/5.
+     */
+    val GEAR = Signal("DISC_GEAR", "Gear selector (discovered)", ENG_GEAR, len = 8, unit = "")
+
+    fun gearLetter(raw: Double?): String? = when (raw?.toInt()) {
+        5 -> "P"
+        6 -> "R"
+        7 -> "N"
+        8 -> "D"
+        else -> null
+    }
+
     val AMBIENT = Signal("TAYCAN_AAT", "Ambient temperature", ENG_AAT,
         len = 16, div = 128.0, signed = true, unit = "°C", pollEvery = 10)
     /** OBDb unit: miles (range remaining as the car displays it). */
@@ -89,7 +105,7 @@ object Taycan {
 
     /** Polled in this order; grouped by module so the header changes as little as possible. */
     val POLLED = listOf(
-        SOC_DISPLAY, SPEED, AMBIENT,
+        SOC_DISPLAY, SPEED, GEAR, AMBIENT,
         HV_VOLTAGE, HV_VOLTAGE_1818, HV_CURRENT, PACK_T_MAX, PACK_T_MIN,
         RANGE,
     )
