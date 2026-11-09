@@ -40,114 +40,79 @@ import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.nav.Nav
 import com.taycanscreen.app.nav.RouteMath
 import com.taycanscreen.app.nav.Step
-import org.osmdroid.util.BoundingBox
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Overlay
-import org.osmdroid.views.overlay.Polyline
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * Draws the active route on the osmdroid map (remaining part only, so it shrinks as you drive) and a
- * destination marker; frames the whole route when a new one starts. [onOverview] tells the map to
- * stop following for a moment.
+ * Draws the active route on the vector map (remaining part only, so it shrinks as you drive), under the
+ * street names, and the destination; frames the whole route when a new one starts. [onOverview] tells
+ * the map to stop following for a moment.
  */
 @Composable
-fun RouteOnMap(mapView: MapView, c: DriveColors, onOverview: () -> Unit) {
+fun RouteOnMap(map: MapLibreMap?, style: Style?, c: DriveColors, onOverview: () -> Unit) {
     val active by Nav.active.collectAsState()
     val progress by Nav.progress.collectAsState()
-    val px = LocalDensity.current.density // screen px per design px
-    val overlays = remember(mapView) {
-        fun line() = Polyline(mapView).apply {
-            outlinePaint.strokeCap = Paint.Cap.ROUND
-            outlinePaint.strokeJoin = Paint.Join.ROUND
-            outlinePaint.isAntiAlias = true
-            isGeodesic = false
-            infoWindow = null
-        }
-        Triple(line(), line(), line()) // glow, casing, line
-    }
-    val dest = remember(mapView) { DestinationOverlay() }
-
-    LaunchedEffect(c, px) {
-        overlays.first.outlinePaint.apply { color = c.accent.copy(alpha = 0.22f * c.glow).toArgb(); strokeWidth = 26f * px }
-        overlays.second.outlinePaint.apply { color = c.panel.toArgb(); strokeWidth = 15f * px }
-        overlays.third.outlinePaint.apply { color = c.accent.toArgb(); strokeWidth = 8f * px }
-        dest.accent = c.accent.toArgb()
-        dest.panel = c.panel.toArgb()
-        dest.px = px
-        mapView.invalidate()
-    }
-    DisposableEffect(mapView) {
-        // Under the car marker: insert at the bottom of the overlay list.
-        mapView.overlays.add(0, dest)
-        mapView.overlays.add(0, overlays.third)
-        mapView.overlays.add(0, overlays.second)
-        mapView.overlays.add(0, overlays.first)
-        onDispose {
-            mapView.overlays.removeAll(listOf(overlays.first, overlays.second, overlays.third, dest))
-        }
+    // Sources and layers (again after a style reload or a map-size change, which makes a new map).
+    LaunchedEffect(style, c) {
+        val s = style ?: return@LaunchedEffect
+        if (s.getSource("route") == null) s.addSource(GeoJsonSource("route"))
+        if (s.getSource("dest") == null) s.addSource(GeoJsonSource("dest"))
+        val below = com.taycanscreen.app.map.MapTheme.firstSymbolLayerId(s)
+        fun line(id: String) = s.getLayer(id) as? LineLayer ?: LineLayer(id, "route").withProperties(
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ).also { if (below != null) s.addLayerBelow(it, below) else s.addLayer(it) }
+        line("route-casing").setProperties(PropertyFactory.lineColor(c.background.toArgb()), PropertyFactory.lineWidth(11f))
+        line("route-line").setProperties(PropertyFactory.lineColor(c.accent.toArgb()), PropertyFactory.lineWidth(6f))
+        fun circle(id: String) = s.getLayer(id) as? CircleLayer ?: CircleLayer(id, "dest").also { s.addLayer(it) }
+        circle("dest-ring").setProperties(
+            PropertyFactory.circleRadius(13f), PropertyFactory.circleColor(c.accent.copy(alpha = 0.15f).toArgb()),
+            PropertyFactory.circleStrokeColor(c.accent.toArgb()), PropertyFactory.circleStrokeWidth(1.5f),
+        )
+        circle("dest-dot").setProperties(
+            PropertyFactory.circleRadius(6f), PropertyFactory.circleColor(c.background.toArgb()),
+            PropertyFactory.circleStrokeColor(c.accent.toArgb()), PropertyFactory.circleStrokeWidth(3f),
+        )
     }
     // Show the remaining route.
-    LaunchedEffect(active, progress?.seg, progress?.onRoute) {
+    LaunchedEffect(style, active, progress?.seg, progress?.onRoute) {
+        val s = style ?: return@LaunchedEffect
+        val route = s.getSource("route") as? GeoJsonSource ?: return@LaunchedEffect
+        val dest = s.getSource("dest") as? GeoJsonSource ?: return@LaunchedEffect
         val a = active
-        val all = overlays.toList()
         if (a == null) {
-            all.forEach { it.setPoints(emptyList()) }
-            dest.at = null
-            mapView.invalidate()
+            route.setGeoJson(FeatureCollection.fromFeatures(emptyList<Feature>()))
+            dest.setGeoJson(FeatureCollection.fromFeatures(emptyList<Feature>()))
             return@LaunchedEffect
         }
         val pts = a.route.points
         val p = progress
-        val remaining = if (p == null) pts.map { GeoPoint(it.lat, it.lon) }
-        else listOf(GeoPoint(p.onRoute.lat, p.onRoute.lon)) + pts.drop(p.seg + 1).map { GeoPoint(it.lat, it.lon) }
-        all.forEach { it.setPoints(remaining) }
-        dest.at = GeoPoint(a.dest.lat, a.dest.lon)
-        mapView.invalidate()
+        val remaining = if (p == null) pts else listOf(p.onRoute) + pts.drop(p.seg + 1)
+        if (remaining.size >= 2) route.setGeoJson(LineString.fromLngLats(remaining.map { Point.fromLngLat(it.lon, it.lat) }))
+        dest.setGeoJson(Point.fromLngLat(a.dest.lon, a.dest.lat))
     }
     // A new route (not a re-route): show all of it, then the map follows the car again.
-    LaunchedEffect(active?.id) {
+    LaunchedEffect(active?.id, map) {
         val a = active ?: return@LaunchedEffect
+        val m = map ?: return@LaunchedEffect
         if (a.route.points.size < 2) return@LaunchedEffect
         onOverview()
-        val box = BoundingBox.fromGeoPoints(a.route.points.map { GeoPoint(it.lat, it.lon) })
-        mapView.zoomToBoundingBox(box, true, (90 * px).toInt())
-    }
-}
-
-/** Diamond pin at the destination. */
-private class DestinationOverlay : Overlay() {
-    var at: GeoPoint? = null
-    var accent = 0
-    var panel = 0
-    var px = 1f
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val pt = android.graphics.Point()
-
-    override fun draw(c: android.graphics.Canvas, pj: org.osmdroid.views.Projection) {
-        val g = at ?: return
-        pj.toPixels(g, pt)
-        val x = pt.x.toFloat()
-        val y = pt.y.toFloat()
-        val s = 14f * px
-        val path = android.graphics.Path().apply { moveTo(x, y - s); lineTo(x + s, y); lineTo(x, y + s); lineTo(x - s, y); close() }
-        paint.style = Paint.Style.FILL
-        paint.color = panel
-        c.drawPath(path, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 3f * px
-        paint.color = accent
-        c.drawPath(path, paint)
-        paint.style = Paint.Style.FILL
-        c.drawCircle(x, y, 4f * px, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1.5f * px
-        paint.alpha = 140
-        c.drawCircle(x, y, 26f * px, paint)
-        paint.alpha = 255
+        val bounds = LatLngBounds.Builder().includes(a.route.points.map { LatLng(it.lat, it.lon) }).build()
+        m.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120), 900)
     }
 }
 

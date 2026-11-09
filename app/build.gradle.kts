@@ -24,6 +24,8 @@ android {
     compileSdk = 35
 
     defaultConfig {
+        // The box is arm64 (Snapdragon SM6225); MapLibre's native library for other CPUs only bloats the APK.
+        ndk { abiFilters += listOf("arm64-v8a") }
         applicationId = "com.taycanscreen.app"
         minSdk = 26
         targetSdk = 34
@@ -88,7 +90,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // Vector map (MapLibre Native; 11.13.x matches our Kotlin 2.0) with OpenFreeMap tiles, no key.
+    implementation("org.maplibre.gl:android-sdk:11.13.5")
     // Spotify App Remote SDK 0.8.0 (github.com/spotify/android-sdk, Apache 2.0; see libs/SPOTIFY-SDK-*).
     implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
     implementation("com.google.code.gson:gson:2.11.0")
