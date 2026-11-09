@@ -6,6 +6,13 @@ import android.media.AudioManager
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -280,90 +287,53 @@ private fun DriveContent(
     }
     val sweepT = rememberSince(sweepAt, 1.2f)
 
-    // Charging theater: parked and energy flowing into the pack (on after ~1 s, off after ~3 s).
-    var charging by remember { mutableStateOf(false) }
-    var votes by remember { mutableIntStateOf(0) }
-    LaunchedEffect(now) {
-        val parked = v.gear == "P" || (v.gear == null && (v.speedMph?.x ?: 99.0) < 0.5)
-        val inflow = (v.kw?.x ?: 0.0) > 1.0
-        if (parked && inflow) {
-            votes = if (votes < 0) 1 else votes + 1
-            if (!charging && votes >= 2) {
-                charging = true
-                AppLog.info("drive", "Charging view on (%.1f kW in)".format(v.kw?.x ?: 0.0))
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ com.taycanscreen.app.log.Screenshots.capture("charging") }, 3_000)
-            }
-        } else {
-            votes = if (votes > 0) -1 else votes - 1
-            if (charging && votes <= -6) {
-                charging = false
-                AppLog.info("drive", "Charging view off")
-            }
-        }
+    // Charging view: parked with energy flowing in (TripComputer decides; it also logs the session).
+    val charging by com.taycanscreen.app.car.TripComputer.charging.collectAsState()
+    LaunchedEffect(charging) {
+        if (!charging) return@LaunchedEffect
+        delay(3_000)
+        com.taycanscreen.app.log.Screenshots.capture("charging")
     }
 
-    val dens = LocalDensity.current.density
+    // Energy ledger tab (Trip, Battery, Tires, Power, 12 V).
+    var ledgerTab by remember { mutableStateOf("TRIP") }
+    val limit by com.taycanscreen.app.car.SpeedLimit.limit.collectAsState()
+    val progress by com.taycanscreen.app.nav.Nav.progress.collectAsState()
+    val arrivePct = progress?.let { com.taycanscreen.app.car.Arrival.pct(it.remainingM, v.soc?.x, v.rangeMi?.x) }
+    val dirMode by com.taycanscreen.app.nav.LocalDirections.mode.collectAsState()
+    val headingName = gps.heading?.let {
+        com.taycanscreen.app.nav.LocalDirections.name(it.toDouble(), gps.fix?.let { f -> com.taycanscreen.app.nav.LatLon(f.latitude, f.longitude) }, dirMode)
+    }
+    val trip by com.taycanscreen.app.car.TripComputer.trip.collectAsState()
+
     Box(Modifier.fillMaxSize().background(c.background)) {
         // Vehicle panel full height on the left (owner, 2026-11-09); map with the dock under it on the right.
         Row(Modifier.fillMaxSize()) {
-                Column(
-                    Modifier.width(448.dp).fillMaxHeight().background(c.panel)
-                        .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
-                        .onGloballyPositioned { targets.panel = it.boundsInRoot() }
-                        .padding(start = 28.dp, end = 28.dp, top = 12.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-                        GearChips(v.gear, c, sweepT)
-                        Spacer(Modifier.weight(1f))
-                        val (label, dot) = when (status.state) {
-                            LinkState.Live -> (if (carOk) "LINK" else "LINK…") to (if (carOk) c.accent else c.warn)
-                            LinkState.CarAsleep -> "CAR OFF" to c.textFaint
-                            LinkState.Connecting, LinkState.Initializing -> "LINKING" to c.warn
-                            else -> "NO LINK" to c.warn
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Diamond(dot, 11.dp, glow = c.glow > 0f && dot == c.accent)
-                            BasicText(label, style = Filament.label(13.sp, c.textDim, 0.14f))
-                        }
-                    }
-                    if (charging) {
-                        ChargingBlock(v.soc, v.kw?.x ?: 0.0, v.rangeMi, v.packMaxC, c)
-                    } else {
-                        val arcPulse = rememberSince(targets.arcPulseAt, 1.0f)
-                        PowerGauge(
-                            v.speedMph, v.kw,
-                            linkProblem = if (status.state != LinkState.Live && status.state != LinkState.CarAsleep) status.detail.ifBlank { null } else null,
-                            c = c, sweepT = sweepT, pulseT = arcPulse,
-                            modifier = Modifier.onGloballyPositioned {
-                                targets.arc = it.boundsInRoot().topLeft + Offset(196 * dens, 170 * dens)
-                            },
-                        )
-                        BatteryBlock(v.soc, v.rangeMi, v.packMaxC, v.lowVoltage, c, onOpen12V = {
-                            panel = if (panel == "lv") null else "lv"
-                            AppLog.info("ui", "12 V battery panel")
-                        })
-                    }
-                    Spacer(Modifier.weight(1f))
-                    // The big Now playing view over the map makes the mini card redundant (owner, 2026-11-09).
-                    if (!(panel == "music" && musicView == "now")) {
-                        FilamentNowPlaying(
-                            c, now,
-                            onOpenMusic = { panel = "music" },
-                            modifier = Modifier.onGloballyPositioned { targets.nowPlaying = it.boundsInRoot() },
-                            pulseT = rememberSince(targets.nowPlayingPulseAt, 1.0f),
-                        )
-                    }
-                }
-                // The map keeps running underneath while Music is open, so it's current when you close it.
-                Column(Modifier.weight(1f).fillMaxHeight()) {
+            V3Panel(
+                v, c, now, status.state, status.detail, carOk, headingName, limit, sweepT,
+                arcPulse = rememberSince(targets.arcPulseAt, 1.0f),
+                charging = charging, arrivePct = arrivePct,
+                tireWarn = worstTire(readings, now),
+                showPlayer = !(panel == "music" && musicView == "now"),
+                targets = targets,
+                onLedger = { tab -> ledgerTab = tab; panel = "ledger" },
+                onOpenMusic = { panel = "music" },
+                playerPulse = rememberSince(targets.nowPlayingPulseAt, 1.0f),
+                modifier = Modifier.width(420.dp).fillMaxHeight().background(c.panel)
+                    .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
+                    .onGloballyPositioned { targets.panel = it.boundsInRoot() },
+            )
+            // The map keeps running underneath the panels, so it's current when you close them.
+            Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     MapArea(c, v.outsideF, locationGranted, gps, targets, Modifier.fillMaxSize())
-                    if (panel == "search") SearchPanel(
-                        c, v.speedMph?.x, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
-                        onClose = { panel = null }, modifier = Modifier.fillMaxSize(),
-                    )
-                    if (panel == "lv") LowVoltagePanel(v.lowVoltage, c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
+                    when (panel) {
+                        "search" -> SearchPanel(
+                            c, v.speedMph?.x, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
+                            onClose = { panel = null }, modifier = Modifier.fillMaxSize(),
+                        )
+                        "ledger" -> LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = Modifier)
+                    }
                     CompositionLocalProvider(LocalDensity provides realDensity) {
                         when (panel) {
                             "music" -> MusicPanel(
@@ -377,16 +347,16 @@ private fun DriveContent(
                         }
                     }
                 }
-            Dock(
-                c, themeMode, panel,
-                carOk = carOk, gpsOk = gps.fix != null, spotifyOk = spotifyOk,
-                onCycleTheme = onCycleTheme, onOpenVehicle = onOpenVehicle, onOpenSetup = onOpenSetup,
-                onNavigate = { panel = if (panel == "search") null else "search" },
-                onOpenMusic = { panel = if (panel == "music") null else "music" },
-                onOpenAudio = { panel = if (panel == "audio") null else "audio" },
-                modifier = Modifier.fillMaxWidth().height(96.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() },
-            )
-                }
+                V3Dock(
+                    c, themeMode, panel, trip?.distanceMi,
+                    onCycleTheme = onCycleTheme, onOpenSetup = onOpenSetup,
+                    onNavigate = { panel = if (panel == "search") null else "search" },
+                    onOpenMusic = { panel = if (panel == "music") null else "music" },
+                    onOpenAudio = { panel = if (panel == "audio") null else "audio" },
+                    onOpenLedger = { panel = if (panel == "ledger") null else "ledger" },
+                    modifier = Modifier.fillMaxWidth().height(64.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() },
+                )
+            }
         }
         if (showStartup) {
             StartupOverlay(
@@ -403,86 +373,263 @@ private fun DriveContent(
     }
 }
 
-/** Filament now-playing card (cut corners, 1 px frame), Spotify running on the box. */
+/**
+ * v3 instrument panel (Taycan Center Screen Concept, "Center screen — v3"): time / direction / outside
+ * temperature, a big light speed with gear and speed limit, the centre-zero power line, the battery
+ * (opens the energy ledger), and now playing.
+ */
 @Composable
-private fun FilamentNowPlaying(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifier: Modifier, pulseT: Float?) {
+private fun V3Panel(
+    v: VehicleValues,
+    c: DriveColors,
+    now: Long,
+    link: LinkState,
+    linkDetail: String,
+    carOk: Boolean,
+    headingName: String?,
+    limit: com.taycanscreen.app.car.SpeedLimit.Limit?,
+    sweepT: Float?,
+    arcPulse: Float?,
+    charging: Boolean,
+    arrivePct: Double?,
+    tireWarn: Int,
+    showPlayer: Boolean,
+    targets: DriveTargets,
+    onLedger: (String) -> Unit,
+    onOpenMusic: () -> Unit,
+    playerPulse: Float?,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
+    Column(modifier.padding(start = 36.dp, end = 36.dp, top = 26.dp, bottom = 22.dp)) {
+        // Time (press and hold: screenshot for the log) · direction of travel · outside temperature.
+        Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(
+                java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("h:mm")),
+                Modifier.pointerInput(Unit) {
+                    detectTapGestures(onLongPress = {
+                        com.taycanscreen.app.log.Screenshots.capture("owner") { ok ->
+                            Toast.makeText(
+                                context,
+                                if (ok) "Screenshot saved. It goes with your next \"Send log to Claude\"." else "Couldn't take a screenshot",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    })
+                },
+                style = Filament.label(13.sp, c.text, 0.06f),
+            )
+            Spacer(Modifier.weight(1f))
+            if (tireWarn > 0) {
+                BasicText(
+                    "TIRE PRESSURE LOW ›",
+                    Modifier.clickable { onLedger("TIRES") },
+                    style = Filament.label(13.sp, if (tireWarn > 1) c.danger else c.warn, 0.06f, 500),
+                )
+            } else {
+                BasicText(headingName ?: "", style = Filament.label(13.sp, c.textDim, 0.06f))
+            }
+            Spacer(Modifier.weight(1f))
+            BasicText(v.outsideF?.let { "${it.x.roundToInt()}°" } ?: NO_DATA, style = Filament.label(13.sp, c.textDim, 0.06f))
+        }
+
+        if (charging) {
+            Spacer(Modifier.height(18.dp))
+            ChargingBlock(v.soc, v.kw?.x ?: 0.0, v.rangeMi, v.packMaxC, c)
+        } else {
+            Spacer(Modifier.height(20.dp))
+            // Speed, with gear, the road's limit and the unit on the right.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                BasicText(
+                    v.speedMph?.x?.roundToInt()?.toString() ?: NO_DATA,
+                    Modifier.weight(1f).capBox(168.dp).alpha(if (v.speedMph?.dim == true) 0.45f else 1f)
+                        .onGloballyPositioned { targets.arc = it.boundsInRoot().center },
+                    style = Filament.num(168.sp, 300, c.text).copy(letterSpacing = (-8).sp),
+                    maxLines = 1,
+                )
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (limit != null) {
+                        val over = (v.speedMph?.x ?: 0.0) > limit.mph + 5
+                        Column(
+                            Modifier.border(1.5.dp, if (over) c.warn else c.textDim).padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            BasicText("LIMIT", style = Filament.label(9.sp, if (over) c.warn else c.textFaint, 0.12f))
+                            BasicText("${limit.mph}", style = Filament.num(24.sp, 500, if (over) c.warn else c.text))
+                        }
+                    }
+                    BasicText(v.gear ?: NO_DATA, style = Filament.label(13.sp, c.text, 0.1f, 500))
+                    BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(13.sp, c.textFaint, 0.1f))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            PowerLine(
+                v.kw, c, sweepT, arcPulse,
+                problem = if (link != LinkState.Live && link != LinkState.CarAsleep) linkDetail.ifBlank { null }
+                else if (link == LinkState.CarAsleep) "CAR OFF" else if (!carOk) "WAITING FOR THE CAR" else null,
+            )
+            Spacer(Modifier.height(24.dp))
+            // Battery: opens the energy ledger.
+            val soc = v.soc
+            val col = soc?.let { chargeColor(it.x, c) } ?: c.text
+            Column(Modifier.fillMaxWidth().clickable { onLedger("TRIP") }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                    BasicText(
+                        soc?.x?.roundToInt()?.toString() ?: NO_DATA,
+                        Modifier.alignByBaseline().alpha(if (soc?.dim == true) 0.45f else 1f),
+                        style = Filament.num(56.sp, 300, col).copy(letterSpacing = (-1.5).sp),
+                    )
+                    BasicText("%", Modifier.alignByBaseline(), style = Filament.num(26.sp, 300, col))
+                    Spacer(Modifier.weight(1f))
+                    BasicText(
+                        "${v.rangeMi?.x?.roundToInt() ?: NO_DATA} mi",
+                        Modifier.alignByBaseline().alpha(if (v.rangeMi?.dim == true) 0.45f else 1f),
+                        style = Filament.text(22.sp, 400, c.textDim),
+                    )
+                }
+                Box(Modifier.fillMaxWidth().height(6.dp).background(c.border)) {
+                    if (soc != null) Box(Modifier.fillMaxWidth((soc.x / 100.0).toFloat().coerceIn(0f, 1f)).fillMaxHeight().background(col))
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    if (arrivePct != null) {
+                        BasicText(
+                            "ARRIVE ${arrivePct.roundToInt().coerceAtLeast(0)}%",
+                            style = Filament.label(12.sp, if (arrivePct < 10) c.warn else c.textFaint, 0.08f),
+                        )
+                    } else {
+                        val lv = v.lowVoltage.soc
+                        BasicText(
+                            "PACK ${v.packMaxC?.let { "%.0f°F".format(it.x * 9 / 5 + 32) } ?: NO_DATA} · 12V ${lv?.let { "${it.x.roundToInt()}%" } ?: NO_DATA}",
+                            style = Filament.label(12.sp, lv?.let { if (it.x < 75) lowVoltageColor(it.x, c) else c.textFaint } ?: c.textFaint, 0.08f),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    BasicText("LEDGER ›", style = Filament.label(12.sp, c.textFaint, 0.08f))
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (showPlayer) {
+            V3Player(c, now, onOpenMusic, Modifier.onGloballyPositioned { targets.nowPlaying = it.boundsInRoot() }, playerPulse)
+        }
+    }
+}
+
+/** Centre-zero power line (v3): regen to the left third (−150 kW), drive to the right (300 kW). */
+@Composable
+private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, problem: String?) {
+    val drive = kw?.let { -it.x } // positive = drawing power
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(14.dp)) {
+            val w = size.width
+            val y = size.height / 2
+            val x0 = w / 3f
+            drawRect(c.border, Offset(0f, y - density), Size(w, 2 * density))
+            val pulse = pulseT?.let { keys(it, 0f to 0f, 0.05f to 1f, 1f to 0f) } ?: 0f
+            if (pulse > 0f) drawRect(c.accent.copy(alpha = pulse), Offset(0f, y - density), Size(w, 2 * density))
+            drawRect(c.textFaint, Offset(x0 - density / 2, y - 6 * density), Size(density, 12 * density))
+            if (sweepT != null) {
+                // First shift into D: sweep the full range once and settle at zero.
+                val pos = when {
+                    sweepT < 0.05f -> 0f
+                    sweepT < 0.30f -> keys(sweepT, 0.05f to 0f, 0.30f to 1f, easing = EaseSweep)
+                    sweepT < 0.60f -> keys(sweepT, 0.30f to 1f, 0.60f to -1f, easing = EaseSweep)
+                    else -> keys(sweepT, 0.60f to -1f, 0.85f to 0f, easing = EaseSweep)
+                }
+                val alpha = keys(sweepT, 0f to 0f, 0.05f to 1f, 1.0f to 1f, 1.2f to 0f)
+                val end = if (pos >= 0) x0 + pos * (w - x0) else x0 + pos * x0
+                drawRect(c.accent.copy(alpha = alpha), Offset(minOf(x0, end), y - 2 * density), Size(kotlin.math.abs(end - x0), 4 * density))
+            } else if (drive != null) {
+                val a = if (kw.dim) 0.45f else 1f
+                if (drive >= 0) {
+                    val len = (drive / 300.0).coerceIn(0.0, 1.0).toFloat() * (w - x0)
+                    drawRect(c.text.copy(alpha = a), Offset(x0, y - 2 * density), Size(len, 4 * density))
+                } else {
+                    val len = (-drive / 150.0).coerceIn(0.0, 1.0).toFloat() * x0
+                    drawRect(c.accent.copy(alpha = a), Offset(x0 - len, y - 2 * density), Size(len, 4 * density))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            BasicText("REGEN", style = Filament.label(12.sp, c.textFaint, 0.08f))
+            Spacer(Modifier.weight(1f))
+            BasicText(
+                when {
+                    drive == null -> "$NO_DATA kW"
+                    drive >= 0 -> "${drive.roundToInt()} kW"
+                    else -> "−${(-drive).roundToInt()} kW"
+                },
+                style = Filament.label(12.sp, if ((drive ?: 0.0) < -0.5) c.accent else c.text, 0.08f),
+            )
+        }
+        if (problem != null) {
+            BasicText(problem.uppercase(), style = Filament.label(12.sp, c.warn, 0.04f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Now playing (v3 style, enlarged at the owner's request): cover, title, artist, progress, round controls. */
+@Composable
+private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifier: Modifier, pulseT: Float?) {
     val status by SpotifyController.status.collectAsState()
     val np by SpotifyController.nowPlaying.collectAsState()
     val art by SpotifyController.artwork.collectAsState()
     val connected = status.link == SpotifyController.Link.Connected
     val flash = pulseT?.let { keys(it, 0f to 0f, 0.05f to 1f, 1.0f to 0f) } ?: 0f
-    Box(
-        modifier.fillMaxWidth().background(c.border, Filament.Cut).padding(1.dp)
+    Column(
+        modifier.fillMaxWidth()
             .drawWithContent {
                 drawContent()
-                if (flash > 0f) {
-                    val s = density
-                    val cut = 14 * s
-                    val p = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(cut, 0f); lineTo(size.width, 0f); lineTo(size.width, size.height - cut)
-                        lineTo(size.width - cut, size.height); lineTo(0f, size.height); lineTo(0f, cut); close()
-                    }
-                    drawPath(p, c.accent.copy(alpha = flash), style = Stroke(2 * s))
-                    drawPath(p, c.accent.copy(alpha = 0.12f * flash))
-                }
+                if (flash > 0f) drawRect(c.accent.copy(alpha = flash), style = Stroke(2 * density))
             },
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Bigger now playing (owner, 2026-11-09): the full-height panel has room for it.
-        Column(
-            Modifier.fillMaxWidth().background(c.raised, Filament.Cut).clickable(onClick = onOpenMusic)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onOpenMusic),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Row(Modifier.height(96.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Box(Modifier.size(96.dp).clip(RoundedCornerShape(6.dp)).background(c.coverBg), contentAlignment = Alignment.Center) {
-                    val bmp = art
-                    if (connected && bmp != null) {
-                        Image(bmp.asImageBitmap(), contentDescription = "Album art", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    } else {
-                        Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.size(36.dp))
-                    }
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    BasicText(
-                        if (connected) np?.title ?: "Nothing playing" else "Spotify",
-                        style = Filament.text(24.sp, 600, c.text), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    )
-                    BasicText(
-                        if (connected) np?.artist?.ifBlank { null } ?: "Tap to browse" else status.detail.ifBlank { "Connecting…" },
-                        style = Filament.text(18.sp, 400, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
+            Box(Modifier.size(84.dp).clip(RoundedCornerShape(4.dp)).background(c.coverBg), contentAlignment = Alignment.Center) {
+                val bmp = art
+                if (connected && bmp != null) {
+                    Image(bmp.asImageBitmap(), contentDescription = "Album art", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.size(30.dp))
                 }
             }
-            val track = np
-            val pos = if (track == null) 0L else (track.positionMs + if (track.paused) 0L else (now - track.positionAt)).coerceIn(0L, track.durationMs)
-            val pct = if (track == null || track.durationMs <= 0) 0f else pos.toFloat() / track.durationMs
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(Modifier.fillMaxWidth().height(4.dp).background(c.lineFaint)) {
-                    Box(Modifier.fillMaxWidth(pct.coerceIn(0f, 1f)).fillMaxHeight().background(c.accent))
-                }
-                Row {
-                    BasicText(if (track == null) NO_DATA else mmss(pos), style = Filament.label(14.sp, c.textFaint, 0f))
-                    Spacer(Modifier.weight(1f))
-                    BasicText(if (track == null) NO_DATA else mmss(track.durationMs), style = Filament.label(14.sp, c.textFaint, 0f))
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)) {
-                Box(Modifier.size(88.dp, 76.dp).clickable { SpotifyController.previous() }, contentAlignment = Alignment.Center) {
-                    Icon(FIcons.Prev, "Previous track", tint = c.text, modifier = Modifier.size(34.dp))
-                }
-                val playing = track?.paused == false
-                Box(
-                    Modifier.size(108.dp, 76.dp).background(c.accentSoft, Filament.CutS).insetLine(c.accentLine)
-                        .clickable { SpotifyController.togglePlay() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", tint = c.accent, modifier = Modifier.size(38.dp))
-                }
-                Box(Modifier.size(88.dp, 76.dp).clickable { SpotifyController.next() }, contentAlignment = Alignment.Center) {
-                    Icon(FIcons.Next, "Next track", tint = c.text, modifier = Modifier.size(34.dp))
-                }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                BasicText(
+                    if (connected) np?.title ?: "Nothing playing" else "Spotify",
+                    style = Filament.text(20.sp, 500, c.text), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                BasicText(
+                    if (connected) np?.artist?.ifBlank { null } ?: "Tap to browse" else status.detail.ifBlank { "Connecting…" },
+                    style = Filament.text(16.sp, 400, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
         }
+        val track = np
+        val pos = if (track == null) 0L else (track.positionMs + if (track.paused) 0L else (now - track.positionAt)).coerceIn(0L, track.durationMs)
+        val pct = if (track == null || track.durationMs <= 0) 0f else pos.toFloat() / track.durationMs
+        Box(Modifier.fillMaxWidth().height(2.dp).background(c.border)) {
+            Box(Modifier.fillMaxWidth(pct.coerceIn(0f, 1f)).fillMaxHeight().background(c.text))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(22.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+            RoundButton(FIcons.Prev, "Previous track", c, 64, false) { SpotifyController.previous() }
+            val playing = track?.paused == false
+            RoundButton(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", c, 76, true) { SpotifyController.togglePlay() }
+            RoundButton(FIcons.Next, "Next track", c, 64, false) { SpotifyController.next() }
+        }
+    }
+}
+
+@Composable
+private fun RoundButton(icon: ImageVector, label: String, c: DriveColors, size: Int, primary: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(size.dp).clip(CircleShape).border(1.dp, if (primary) c.accentLine else c.border, CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = if (primary) c.accent else c.text, modifier = Modifier.size((size * 0.36f).dp))
     }
 }
 
@@ -491,106 +638,58 @@ private fun mmss(ms: Long): String {
     return "%d:%02d".format(s / 60, s % 60)
 }
 
+/** v3 dock under the map: trip distance, app icons with an active dot, volume. */
 @Composable
-private fun IconTap(icon: ImageVector, label: String, tint: Color, iconSize: Int, onClick: () -> Unit) {
-    Box(Modifier.size(72.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(iconSize.dp))
-    }
-}
-
-@Composable
-private fun Dock(
+private fun V3Dock(
     c: DriveColors,
     themeMode: ThemeMode,
     panel: String?,
-    carOk: Boolean,
-    gpsOk: Boolean,
-    spotifyOk: Boolean,
+    tripMi: Double?,
     onCycleTheme: () -> Unit,
-    onOpenVehicle: () -> Unit,
     onOpenSetup: () -> Unit,
     onNavigate: () -> Unit,
     onOpenMusic: () -> Unit,
     onOpenAudio: () -> Unit,
+    onOpenLedger: () -> Unit,
     modifier: Modifier,
 ) {
+    val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()
     Row(
-        modifier.background(c.panel).drawBehind { drawLine(c.border, Offset(0f, density / 2), Offset(size.width, density / 2), density) },
+        modifier.background(c.background).drawBehind { drawLine(c.border, Offset(0f, density / 2), Offset(size.width, density / 2), density) }
+            .padding(horizontal = 28.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.padding(start = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            DockButton(FIcons.Vehicle, "Vehicle details", false, c, iconSize = 34, onClick = onOpenVehicle)
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                StatusLight("CAR", carOk, c)
-                StatusLight("GPS", gpsOk, c)
-                StatusLight("SPOTIFY", spotifyOk, c)
-            }
-        }
-        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-            DockButton(FIcons.Navigate, if (panel == "search") "Close destination search" else "Search for a destination", panel == null || panel == "search", c, onClick = onNavigate)
-            DockButton(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
-            // Status light: cyan when the EQ is on Spotify's audio, amber when it isn't (see the Audio panel).
-            val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()
-            DockButton(
-                FIcons.Eq, "Equalizer", panel == "audio", c,
-                light = if (eq.attachedTo == "Spotify") c.accent else c.warn,
-                onClick = onOpenAudio,
-            )
+        BasicText(
+            "TRIP ${tripMi?.let { "%.1f".format(it) } ?: NO_DATA} MI",
+            Modifier.width(170.dp),
+            style = Filament.label(12.sp, c.textFaint, 0.1f),
+        )
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally)) {
+            DockIcon(FIcons.Navigate, if (panel == "search") "Close destination search" else "Search for a destination", panel == null || panel == "search", c, onClick = onNavigate)
+            DockIcon(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
+            // Amber corner light while the EQ isn't on Spotify's audio.
+            DockIcon(FIcons.Eq, "Equalizer", panel == "audio", c, light = if (eq.attachedTo == "Spotify") null else c.warn, onClick = onOpenAudio)
+            DockIcon(FIcons.Bolt, "Energy ledger", panel == "ledger", c, onClick = onOpenLedger)
             val themeIcon = when (themeMode) {
                 ThemeMode.Auto -> FIcons.Auto
                 ThemeMode.Day -> FIcons.Sun
                 ThemeMode.Night -> FIcons.Moon
             }
-            DockButton(themeIcon, "Day/night: ${themeMode.label()}", false, c, label = themeMode.label().uppercase(), onClick = onCycleTheme)
-            DockButton(FIcons.Setup, "Setup", false, c, onClick = onOpenSetup)
+            DockIcon(themeIcon, "Day/night: ${themeMode.label()}", false, c, onClick = onCycleTheme)
+            DockIcon(FIcons.Setup, "Setup", false, c, onClick = onOpenSetup)
         }
-        VolumeControl(c, Modifier.padding(end = 12.dp))
+        VolumeControl(c, Modifier.width(170.dp))
     }
 }
 
 @Composable
-private fun StatusLight(label: String, ok: Boolean, c: DriveColors) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Diamond(if (ok) c.accent else c.textFaint, 8.5.dp, glow = false)
-        BasicText(label, style = Filament.label(12.sp, if (ok) c.textDim else c.textFaint, 0.12f))
-    }
-}
-
-@Composable
-private fun DockButton(
-    icon: ImageVector,
-    description: String,
-    active: Boolean,
-    c: DriveColors,
-    iconSize: Int = 32,
-    label: String? = null,
-    light: Color? = null,
-    onClick: () -> Unit,
-) {
-    Box(
-        Modifier.size(96.dp, 72.dp)
-            .background(if (active) c.accentSoft else Color.Transparent, Filament.CutS)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (active) {
-            Box(
-                Modifier.align(Alignment.TopCenter).padding(horizontal = 24.dp).fillMaxWidth().height(3.dp)
-                    .drawBehind { if (c.glow > 0f) drawRect(c.accent.copy(alpha = 0.35f), Offset(-4 * density, -2 * density), size.copy(size.width + 8 * density, size.height + 6 * density)) }
-                    .background(c.accent),
-            )
+private fun DockIcon(icon: ImageVector, description: String, active: Boolean, c: DriveColors, light: Color? = null, onClick: () -> Unit) {
+    Box(Modifier.size(56.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Icon(icon, contentDescription = description, tint = if (active) c.text else c.textFaint, modifier = Modifier.size(24.dp))
+            Box(Modifier.size(4.dp).clip(CircleShape).background(if (active) c.accent else Color.Transparent))
         }
-        if (light != null) {
-            Box(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 22.dp)) { Diamond(light, 11.dp, glow = c.glow > 0f) }
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = description, tint = if (active) c.accent else c.textDim, modifier = Modifier.size(iconSize.dp))
-            if (label != null) BasicText(label, Modifier.padding(top = 2.dp), style = Filament.label(11.sp, c.textFaint, 0.1f))
-        }
+        if (light != null) Box(Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 10.dp).size(7.dp).clip(CircleShape).background(light))
     }
 }
 
@@ -598,7 +697,6 @@ private fun DockButton(
 private fun VolumeControl(c: DriveColors, modifier: Modifier) {
     val context = LocalContext.current
     val audio = remember { context.getSystemService(AudioManager::class.java) }
-    val max = remember { audio?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)?.takeIf { it > 0 } ?: 15 }
     var vol by remember { mutableIntStateOf(audio?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -611,19 +709,14 @@ private fun VolumeControl(c: DriveColors, modifier: Modifier) {
         audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0)
         vol = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
     }
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
-        IconTap(FIcons.Minus, "Volume down", c.text, 26) { adjust(AudioManager.ADJUST_LOWER) }
-        Column(Modifier.width(84.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(FIcons.Volume, null, tint = c.textDim, modifier = Modifier.size(18.dp))
-                BasicText("$vol", style = Filament.num(28.sp, 600, c.text))
-            }
-            val lit = (vol * 10f / max).roundToInt()
-            Row(Modifier.width(72.dp).height(4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                for (n in 0 until 10) Box(Modifier.weight(1f).fillMaxHeight().background(if (n < lit) c.accent else c.border))
-            }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End)) {
+        Box(Modifier.size(56.dp).clickable { adjust(AudioManager.ADJUST_LOWER) }, contentAlignment = Alignment.Center) {
+            Icon(FIcons.Minus, "Volume down", tint = c.textDim, modifier = Modifier.size(24.dp))
         }
-        IconTap(FIcons.Plus, "Volume up", c.text, 26) { adjust(AudioManager.ADJUST_RAISE) }
+        BasicText("$vol", Modifier.width(34.dp), style = Filament.label(15.sp, c.text, 0f, 500).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+        Box(Modifier.size(56.dp).clickable { adjust(AudioManager.ADJUST_RAISE) }, contentAlignment = Alignment.Center) {
+            Icon(FIcons.Plus, "Volume up", tint = c.textDim, modifier = Modifier.size(24.dp))
+        }
     }
 }
 

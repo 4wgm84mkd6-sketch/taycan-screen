@@ -53,8 +53,12 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
 - The "High-voltage system not free of voltage" warning while an adapter is active is expected.
 
 ## UI rules
-- Design: Filament (`https://claude.ai/artifact/YJuGszWriE3gprMQmWfsDN`). The Drive screen is drawn in
-  design px (DriveScreen sets density so the 1602×720 board fits the window); copy sizes from the boards.
+- Design: v3 "Center screen" boards in the Taycan Center Screen Concept artifact
+  (`https://claude.ai/artifact/PhA2Jt5qDhHqoA658Q2WDw`: Drive — night / day, Audio), owner-chosen
+  2026-11-09; Inter Tight + IBM Plex Mono, mint accent, square panels. The Filament start-up sequence stays.
+  The Drive screen is drawn in design px (DriveScreen sets density so 1602×720 fits the window).
+- Owner requests that override the boards: full-height left panel, a large now-playing player, battery
+  colours green → yellow → red, map size L/M/S and satellite.
 - Start-up (StartupLockOn board): locks wait for real events; hand-off by 3.0 s so Drive takes touches
   within 4 s of the first frame, always. Gauge sweep only on the first shift into D per app start.
 - No phone features: no driver detection, no iPhone pairing, no calls (owner, 2026-11-09).

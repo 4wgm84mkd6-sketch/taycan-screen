@@ -33,7 +33,16 @@ data class Signal(
     val unit: String,
     /** Poll on every Nth cycle (slow-changing values). */
     val pollEvery: Int = 1,
+    /** Only polled while a screen asks for this group (e.g. "power", "cells"); null = always. */
+    val group: String? = null,
+    /** Spread a set of signals over cycles: polled when cycle % [slots] == [slot]. */
+    val slot: Int = 0,
+    val slots: Int = 1,
+    /** Other OBDb signals decoded from the same reply (one request, several values). */
+    val siblings: List<Signal> = emptyList(),
 ) {
+    fun due(cycle: Long): Boolean = cycle % pollEvery == 0L && cycle % slots == slot.toLong()
+
     /** A reading older than this is shown as "—". */
     val staleMs: Long get() = 5_000L * pollEvery
 
@@ -70,6 +79,11 @@ object Taycan {
     private val GW_12V_SOC = ObdCommand("710", "77A", "2A0C", extendedSession = false)
     private val GW_12V_R = ObdCommand("710", "77A", "2A0E", extendedSession = false)
     private val GW_12V_AH = ObdCommand("710", "77A", "2A0F", extendedSession = false)
+    private val BMS_SOH = ObdCommand("7E5", "7ED", "51E0", extendedSession = false)
+    private val CL_TRIP_USE = ObdCommand("714", "77E", "0530", extendedSession = false, flowControl = true)
+    private val ENG_EM_RPM_1 = ObdCommand("7E0", "7E8", "1151", extendedSession = false)
+    private val ENG_EM_TORQ_1 = ObdCommand("7E0", "7E8", "1153", extendedSession = false)
+    private val ENG_EM_TORQ_2 = ObdCommand("7E0", "7E8", "1154", extendedSession = false)
     private val BMS_CURR = ObdCommand("7E5", "7ED", "1802", extendedSession = true)
     private val BMS_T_MAX = ObdCommand("7E5", "7ED", "1E0E", extendedSession = true)
     private val BMS_T_MIN = ObdCommand("7E5", "7ED", "1E0F", extendedSession = true)
@@ -136,14 +150,60 @@ object Taycan {
     val LV_RESISTANCE = Signal("TAYCAN_SSB_R", "12V battery resistance", GW_12V_R,
         len = 8, mul = 2.0, div = 10.0, unit = "mΩ", pollEvery = 20)
 
+    // Tires (OBDb 70B/775, fc): pressure, temperature and set point from one reply per wheel.
+    private fun tire(corner: String, did: String): Signal {
+        val cmd = ObdCommand("70B", "775", did, extendedSession = false, flowControl = true)
+        return Signal(
+            "TAYCAN_TP_$corner", "Tire pressure $corner", cmd, bix = 40, len = 8, div = 40.0, nullMax = 6.37, unit = "bar", pollEvery = 20,
+            siblings = listOf(
+                Signal("TAYCAN_TT_$corner", "Tire temperature $corner", cmd, bix = 48, len = 8, add = -40.0, nullMax = 127.0, unit = "°C", pollEvery = 20),
+                Signal("TAYCAN_TP_SET_$corner", "Tire pressure set point $corner", cmd, bix = 56, len = 8, div = 40.0, unit = "bar", pollEvery = 20),
+            ),
+        )
+    }
+    val TIRE_FL = tire("FL", "18A1")
+    val TIRE_FR = tire("FR", "18A0")
+    val TIRE_RL = tire("RL", "18A2")
+    val TIRE_RR = tire("RR", "18A3")
+    val TIRES = listOf(TIRE_FL, TIRE_FR, TIRE_RL, TIRE_RR)
+
+    /** HV battery state of health, OBDb's 2025+ formula (TAYCAN_HVBAT_SOH_J12; 2025 recordings 91.2 / 100 %). */
+    val HV_SOH = Signal("TAYCAN_HVBAT_SOH_J12", "HV battery health", BMS_SOH,
+        len = 16, div = 10.0, add = -1369.5, nullMin = 0.0, unit = "%", pollEvery = 60)
+
+    /** The car's own short-trip consumption (cluster, kWh/100 mi). */
+    val TRIP_USE_SHORT = Signal("TAYCAN_TRIP_USE_SHORT", "Trip consumption (short)", CL_TRIP_USE,
+        bix = 238, len = 18, div = 1000.0, signed = true, unit = "kWh/100mi", pollEvery = 20)
+
+    // Motors (only while the Power page is open). OBDb: motor 2's rpm reads "not available" (7FFF) on
+    // 2024–2025 cars, so per-motor power can't be computed; torque is available for both.
+    val EM_TORQ_1 = Signal("TAYCAN_EM_TORQ_1", "Electric motor 1 torque", ENG_EM_TORQ_1,
+        len = 16, div = 32.0, signed = true, unit = "Nm", group = "power")
+    val EM_TORQ_2 = Signal("TAYCAN_EM_TORQ_2", "Electric motor 2 torque", ENG_EM_TORQ_2,
+        len = 16, div = 32.0, signed = true, unit = "Nm", group = "power")
+    val EM_RPM_1 = Signal("TAYCAN_EM_RPM_1", "Electric motor 1 rpm", ENG_EM_RPM_1,
+        len = 16, div = 2.0, signed = true, nullMax = 16383.0, unit = "rpm", group = "power")
+
+    /**
+     * HV cells (OBDb 7E5 1850–1870, one reply per module: id, then 6 × [voltage /10000, SoC]). Only while
+     * the Battery page is open, 3 modules per cycle (11 cycles for all 33). The value is cell 1's voltage;
+     * [Cells] keeps every cell.
+     */
+    val CELL_MODULES: List<Signal> = (0 until 33).map { i ->
+        val did = "%04X".format(0x1850 + i)
+        Signal("CELLS_M%02d".format(i + 1), "HV battery module ${i + 1} cells", ObdCommand("7E5", "7ED", did, extendedSession = false),
+            bix = 8, len = 16, div = 10000.0, unit = "V", group = "cells", slot = i % 11, slots = 11)
+    }
+
     /** Polled in this order; grouped by module so the header changes as little as possible. */
     val POLLED = listOf(
-        SPEED_DIR, SOC_DISPLAY, GEAR, SPEED,
-        HV_VOLTAGE, HV_VOLTAGE_1818, HV_CURRENT, PACK_T_MAX, PACK_T_MIN,
+        SPEED_DIR, SOC_DISPLAY, GEAR, SPEED, EM_TORQ_1, EM_TORQ_2, EM_RPM_1,
+        HV_VOLTAGE, HV_VOLTAGE_1818, HV_CURRENT, PACK_T_MAX, PACK_T_MIN, HV_SOH,
+    ) + CELL_MODULES + listOf(
         SPEED_DIR, // again mid-cycle, so speed refreshes about twice as often
         RANGE, LV_VOLTAGE, LV_SOC, LV_CHARGE, LV_CAPACITY, LV_RESISTANCE,
-        OUTSIDE,
-    )
+        OUTSIDE, TRIP_USE_SHORT,
+    ) + TIRES
 
     /** Speed for display (km/h, ≥ 0): directional speed if fresh, else F40D; null if neither is. */
     fun speedKmh(readings: Map<String, Reading>, now: Long = System.currentTimeMillis()): Double? {

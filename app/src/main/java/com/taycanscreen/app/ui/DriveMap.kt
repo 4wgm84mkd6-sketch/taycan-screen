@@ -109,7 +109,8 @@ private fun cartoSource(name: String, path: String) = org.osmdroid.tileprovider.
     arrayOf("a", "b", "c", "d").map { "https://$it.basemaps.cartocdn.com/$path/" }.toTypedArray(),
     "© OpenStreetMap contributors © CARTO",
 )
-private val DayTiles by lazy { cartoSource("CartoVoyager2x", "rastertiles/voyager") }
+// v3: quiet map styles (Positron by day, Dark Matter at night), so the mint route stands out.
+private val DayTiles by lazy { cartoSource("CartoPositron2x", "light_all") }
 private val NightTiles by lazy { cartoSource("CartoDark2x", "dark_all") }
 /** Dark Matter is neutral grey; tint it towards Filament's teal (greys → cyan-leaning, labels stay light). */
 private val NightTint by lazy {
@@ -210,6 +211,11 @@ fun MapArea(
     val prefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
     var lastTouchAt by remember { mutableLongStateOf(0L) }
     var northUp by remember { mutableStateOf(prefs.getBoolean("north_up", false)) }
+    LaunchedEffect(Unit) {
+        com.taycanscreen.app.nav.LocalDirections.mode.value =
+            if (prefs.getString("directions", "Local") == "Compass") com.taycanscreen.app.nav.LocalDirections.Mode.Compass
+            else com.taycanscreen.app.nav.LocalDirections.Mode.Local
+    }
     var satellite by remember { mutableStateOf(prefs.getString("map_style", "map") == "satellite") }
     val labelsOverlay = remember(mapView) {
         org.osmdroid.views.overlay.TilesOverlay(
@@ -243,6 +249,7 @@ fun MapArea(
         if (!locationGranted) null
         else CarLocationOverlay(locationProvider(context), mapView, { headingUp.value }, ::carSpeedKmh, { _, loc, bearing ->
             com.taycanscreen.app.nav.Nav.onLocation(loc.latitude, loc.longitude)
+            com.taycanscreen.app.car.SpeedLimit.onLocation(loc.latitude, loc.longitude, bearing, carSpeedKmh())
             if (gps.fix == null) {
                 Boot.mark("First GPS fix")
                 // After the hand-off, lock the reticle on now (or when ring 2 lands, if it's still flying).
@@ -474,7 +481,6 @@ fun MapArea(
                     when {
                         satellite && c.isNight -> SatelliteNight
                         satellite -> null
-                        c.isNight -> NightTint
                         else -> null
                     },
                 )
@@ -486,77 +492,19 @@ fun MapArea(
             locationOverlay?.disableFollowLocation()
             lastTouchAt = System.currentTimeMillis()
         }
-        // Scan lines at night, the panel's edge shadow, and corner brackets.
-        Canvas(Modifier.fillMaxSize()) {
-            val u = density
-            if (c.isNight) {
-                var y = 0f
-                val line = Color(0x0996E6FF)
-                while (y < size.height) {
-                    drawLine(line, Offset(0f, y), Offset(size.width, y), u)
-                    y += 3 * u
-                }
-            }
-            drawRect(Brush.horizontalGradient(listOf(c.panel, Color.Transparent), 0f, 56 * u), size = androidx.compose.ui.geometry.Size(56 * u, size.height))
-            val w = size.width
-            val h = size.height
-            val p = Path().apply {
-                moveTo(14 * u, 46 * u); lineTo(14 * u, 14 * u); lineTo(46 * u, 14 * u)
-                moveTo(w - 46 * u, 14 * u); lineTo(w - 14 * u, 14 * u); lineTo(w - 14 * u, 46 * u)
-                moveTo(w - 14 * u, h - 46 * u); lineTo(w - 14 * u, h - 14 * u); lineTo(w - 46 * u, h - 14 * u)
-                moveTo(46 * u, h - 14 * u); lineTo(14 * u, h - 14 * u); lineTo(14 * u, h - 46 * u)
-            }
-            drawPath(p, c.accent.copy(alpha = 0.55f), style = Stroke(2 * u))
-        }
-
         MarkerLayer(c, gps, targets, locationGranted)
 
-        HeadingTape(gps, c, Modifier.align(Alignment.TopCenter).padding(top = 14.dp))
-
-        // Clock and outside temperature.
-        var clock by remember { mutableLongStateOf(0L) }
-        LaunchedEffect(Unit) {
-            while (true) {
-                clock++
-                delay(10_000)
-            }
-        }
-        val time = remember(clock) { LocalTime.now().format(DateTimeFormatter.ofPattern("h:mm")) }
-        // Press and hold the clock: screenshot for the log.
-        Row(
-            Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 16.dp).height(56.dp)
-                .background(c.overlay, Filament.CutS).insetLine(c.border)
-                .pointerInput(Unit) {
-                    detectTapGestures(onLongPress = {
-                        com.taycanscreen.app.log.Screenshots.capture("owner") { ok ->
-                            android.widget.Toast.makeText(
-                                context,
-                                if (ok) "Screenshot saved. It goes with your next \"Send log to Claude\"." else "Couldn't take a screenshot",
-                                android.widget.Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    })
-                }
-                .padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            BasicText(time, style = Filament.num(28.sp, 600, c.text))
-            Box(Modifier.width(1.dp).height(24.dp).background(c.border))
-            BasicText(
-                "${outsideF?.x?.roundToInt() ?: NO_DATA}°F",
-                Modifier.alpha(if (outsideF?.dim == true) 0.45f else 1f),
-                style = Filament.num(22.sp, 400, c.textDim),
-            )
-        }
+        // v3: what's ahead and behind, in local terms (mauka / makai / Diamond Head / ʻEwa) or compass.
+        // Tap to switch between the two.
+        DirectionLabels(gps, northUp, c)
 
         Column(
-            Modifier.align(Alignment.TopEnd).padding(top = 86.dp, end = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.align(Alignment.TopEnd).padding(top = 28.dp, end = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Column(Modifier.background(c.overlay, Filament.CutS).insetLine(c.border)) {
                 MapButton(FIcons.Plus, "Zoom in", c.text) { mapView.controller.zoomIn() }
-                Box(Modifier.padding(horizontal = 18.dp).width(36.dp).height(1.dp).background(c.border))
+                Box(Modifier.padding(horizontal = 16.dp).width(32.dp).height(1.dp).background(c.border))
                 MapButton(FIcons.Minus, "Zoom out", c.text) { mapView.controller.zoomOut() }
             }
             NorthButton(northUp, gps, c) {
@@ -566,7 +514,7 @@ fun MapArea(
             }
             // Map size: L (Porsche-like, default) → M → S.
             Column(
-                Modifier.size(72.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
+                Modifier.size(64.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
                     mapSize = MapSize.entries[(mapSize.ordinal + 1) % MapSize.entries.size]
                     prefs.edit().putString("map_size", mapSize.name).apply()
                     AppLog.info("map", "Map size ${mapSize.name}")
@@ -579,7 +527,7 @@ fun MapArea(
             }
             // Map / satellite.
             Column(
-                Modifier.size(72.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
+                Modifier.size(64.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
                     satellite = !satellite
                     prefs.edit().putString("map_style", if (satellite) "satellite" else "map").apply()
                     AppLog.info("map", if (satellite) "Satellite view" else "Map view")
@@ -600,16 +548,17 @@ fun MapArea(
             }
         }
 
-        GpsChip(gps, locationGranted, c, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 16.dp))
-        NextTurnBanner(c, Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 14.dp))
-        RouteCard(c, Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
+        // GPS status only while there's no fix (v3 keeps the map clean).
+        if (gps.fix == null) GpsChip(gps, locationGranted, c, Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 40.dp))
+        NextTurnBanner(c, Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 28.dp))
+        RouteCard(c, Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 28.dp))
 
         BasicText(
             if (satellite) "Imagery © Esri, Maxar, Earthstar Geographics · © OpenStreetMap contributors © CARTO"
             else "© OpenStreetMap contributors © CARTO",
-            Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp)
+            Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp)
                 .background(c.overlay).padding(horizontal = 6.dp, vertical = 2.dp),
-            style = Filament.text(11.sp, 400, c.textFaint),
+            style = Filament.text(10.sp, 400, c.textFaint),
         )
         if (!locationGranted) {
             BasicText(
@@ -622,10 +571,33 @@ fun MapArea(
     }
 }
 
+/** Top and bottom of the map: the direction ahead and behind (v3 board's MAUKA / MAKAI labels). */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: GpsInfo, northUp: Boolean, c: DriveColors) {
+    val context = LocalContext.current
+    val mode by com.taycanscreen.app.nav.LocalDirections.mode.collectAsState()
+    val at = gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) }
+    // Direction that is "up" on the map: north in north-up, else the way the map is turned.
+    val up = if (northUp) 0.0 else ((-gps.mapOrientation).toDouble() % 360 + 360) % 360
+    val top = com.taycanscreen.app.nav.LocalDirections.name(up, at, mode)
+    val bottom = com.taycanscreen.app.nav.LocalDirections.name(up + 180, at, mode)
+    val toggle = Modifier.clickable {
+        val next = if (mode == com.taycanscreen.app.nav.LocalDirections.Mode.Local) com.taycanscreen.app.nav.LocalDirections.Mode.Compass
+        else com.taycanscreen.app.nav.LocalDirections.Mode.Local
+        com.taycanscreen.app.nav.LocalDirections.mode.value = next
+        context.getSharedPreferences("ui", Context.MODE_PRIVATE).edit().putString("directions", next.name).apply()
+        AppLog.info("map", "Directions: ${next.name}")
+    }
+    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(horizontal = 20.dp, vertical = 12.dp),
+        style = Filament.label(11.sp, c.textFaint, 0.18f))
+    BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 20.dp, vertical = 10.dp),
+        style = Filament.label(11.sp, c.textDim, 0.18f))
+}
+
 @Composable
 private fun NorthButton(northUp: Boolean, gps: GpsInfo, c: DriveColors, onToggle: () -> Unit) {
     Column(
-        Modifier.size(72.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable(onClick = onToggle),
+        Modifier.size(64.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable(onClick = onToggle),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -664,7 +636,7 @@ private fun GpsChip(gps: GpsInfo, locationGranted: Boolean, c: DriveColors, modi
 fun Modifier.insetLine(color: Color) = this.drawWithContent {
     drawContent()
     val s = density
-    val cut = 8 * s
+    val cut = 0f // v3: square corners
     val w = size.width
     val h = size.height
     val p = Path().apply {
@@ -854,8 +826,8 @@ private val C16 = listOf("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", 
 
 @Composable
 private fun MapButton(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
-    Box(Modifier.size(72.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(28.dp))
+    Box(Modifier.size(64.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(26.dp))
     }
 }
 

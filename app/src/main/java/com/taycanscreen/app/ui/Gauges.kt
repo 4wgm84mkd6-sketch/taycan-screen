@@ -78,6 +78,18 @@ fun lowVoltageColor(pct: Double, c: DriveColors): Color = chargeColor(pct, c, lo
 /** A value from the car with its freshness: [dim] once it's getting old (shown faded), gone once stale. */
 data class V(val x: Double, val dim: Boolean)
 
+/**
+ * Trims a text's box to its digits: from cap height above the baseline to [pad] below it (big numbers
+ * in Inter Tight carry a lot of empty line space).
+ */
+fun Modifier.capBox(fontSize: Dp, pad: Dp = 0.dp, cap: Float = 0.74f) = layout { m, c ->
+    val p = m.measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+    val b = p[androidx.compose.ui.layout.FirstBaseline].takeIf { it != androidx.compose.ui.layout.AlignmentLine.Unspecified } ?: p.height
+    val top = (b - fontSize.toPx() * cap - pad.toPx()).roundToInt().coerceAtLeast(0)
+    val h = b + pad.roundToPx() - top
+    layout(p.width, h) { p.place(0, -top) }
+}
+
 /** Places a child centred on [x] with its first text baseline at [baseline] inside the parent. */
 fun Modifier.baselineAt(x: Dp, baseline: Dp) = layout { m, c ->
     val p = m.measure(c.copy(minWidth = 0, minHeight = 0))

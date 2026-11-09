@@ -217,7 +217,7 @@ fun StartupOverlay(
                 verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             ) {
                 BasicText(
-                    "FILAMENT",
+                    "TAYCAN",
                     Modifier.alpha(titleA).offset(x = (46 * 0.21f).dp),
                     style = Filament.text(46.sp, 300, c.text).copy(
                         fontFamily = Filament.SairaTitle, letterSpacing = 0.42.em,

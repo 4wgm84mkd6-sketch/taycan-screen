@@ -30,23 +30,19 @@ import com.taycanscreen.app.R
  */
 @OptIn(ExperimentalTextApi::class)
 object Filament {
-    private fun saira(w: Int, width: Float = 100f) =
-        Font(R.font.saira, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w), FontVariation.width(width)))
+    // v3 (2026-11-09): Inter Tight for text and numbers, IBM Plex Mono for small caps labels. The old
+    // names stay so every screen picks the new fonts up.
+    private fun inter(w: Int) =
+        Font(R.font.inter_tight, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
 
-    private fun mono(w: Int) =
-        Font(R.font.jetbrains_mono, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))
+    val Saira = FontFamily(inter(300), inter(400), inter(500), inter(600), inter(700))
+    val SairaWide = FontFamily(inter(600))
+    val SairaTitle = FontFamily(inter(300))
+    val Mono = FontFamily(Font(R.font.plex_mono_regular, FontWeight(400)), Font(R.font.plex_mono_medium, FontWeight(500)))
 
-    val Saira = FontFamily(saira(300), saira(400), saira(500), saira(600), saira(700))
-    /** Gear letters: font-stretch 112%. */
-    val SairaWide = FontFamily(saira(600, 112f))
-    /** Start-up title: font-stretch 125%. */
-    val SairaTitle = FontFamily(saira(300, 125f))
-    val Mono = FontFamily(mono(400), mono(500), mono(600))
-
-    /** clip-path "cut": top-left and bottom-right corners cut at 14 px. */
-    val Cut = CutCornerShape(topStart = 14.dp, bottomEnd = 14.dp)
-    /** "cut-s": the same at 8 px. */
-    val CutS = CutCornerShape(topStart = 8.dp, bottomEnd = 8.dp)
+    /** v3 uses plain square panels (Filament's cut corners are gone). */
+    val Cut = CutCornerShape(0.dp)
+    val CutS = CutCornerShape(0.dp)
 
     /**
      * Owner (2026-11-09): all text about 2 pt bigger. Small and mid sizes grow by 3 design px
@@ -122,6 +118,7 @@ object FIcons {
     val Prev = stroke("prev", 1.6f, "M19 5L9 12l10 7z M5 5v14")
     val Next = stroke("next", 1.6f, "M5 5l10 7-10 7z M19 5v14")
     val Close = stroke("close", 1.6f, "M5 5l14 14 M19 5L5 19")
+    val Bolt = stroke("bolt", 1.6f, "M13 2L4 14h7l-1 8 9-12h-7z")
     val Layers = stroke("layers", 1.6f, "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5 M3 17.5l9 5 9-5")
     val Search = stroke("search", 1.6f, "M4 10.5a6.5 6.5 0 1 0 13 0a6.5 6.5 0 1 0-13 0 M15.5 15.5L21 21")
     val Pin = stroke("pin", 1.6f, "M12 21s-6.5-6.2-6.5-11.5a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21z M10 9.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0")

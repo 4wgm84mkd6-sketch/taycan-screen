@@ -23,6 +23,8 @@ data class Step(
     val ref: String?,
     val exit: Int?,
     val distanceM: Double,
+    /** Direction of travel right after the manoeuvre (degrees from north). */
+    val bearingAfter: Double? = null,
 )
 
 data class Route(val points: List<LatLon>, val distanceM: Double, val durationS: Double, val steps: List<Step>)
@@ -107,6 +109,7 @@ object NavApi {
                     ref = s.get("ref")?.takeIf { !it.isJsonNull }?.asString,
                     exit = m.get("exit")?.takeIf { !it.isJsonNull }?.asInt,
                     distanceM = s.get("distance")?.asDouble ?: 0.0,
+                    bearingAfter = m.get("bearing_after")?.takeIf { !it.isJsonNull }?.asDouble,
                 )
             }
         }

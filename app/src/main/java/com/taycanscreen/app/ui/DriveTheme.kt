@@ -3,7 +3,7 @@ package com.taycanscreen.app.ui
 import androidx.compose.ui.graphics.Color
 
 /**
- * Filament design tokens (Main.dc.html, "normal" drive mode). The older field names stay so the Music
+ * Design tokens (now the v3 look; originally Filament). The older field names stay so the Music
  * and Audio panels pick up the new look: background = void, border = lineDim, text = hi,
  * textDim = mid, textFaint = lo, chip = raised.
  */
@@ -36,27 +36,28 @@ data class DriveColors(
     val glow: Float,
 ) {
     companion object {
+        // v3 "Center screen" (Taycan Center Screen Concept, boards "Drive — night" / "Drive — day", 2026-11-09).
         val Night = DriveColors(
-            background = Color(0xFF04070A), panel = Color(0xFF070D12), border = Color(0x3878DCFF),
-            text = Color(0xFFEAF8FF), textDim = Color(0xFF9DBBC8), textFaint = Color(0xFF6A8A97),
-            chip = Color(0xFF0C151C), track = Color(0x3878DCFF), accent = Color(0xFF3EE6FF),
-            good = Color(0xFF3EE6FF), warn = Color(0xFFFFC23D), danger = Color(0xFFFF4D61),
+            background = Color(0xFF0E0F10), panel = Color(0xFF0E0F10), border = Color(0xFF26292C),
+            text = Color(0xFFECEDEE), textDim = Color(0xFFA2A6AB), textFaint = Color(0xFF7E8389),
+            chip = Color(0xFF17191B), track = Color(0xFF26292C), accent = Color(0xFF7FD6B5),
+            good = Color(0xFF7FD6B5), warn = Color(0xFFE8A13A), danger = Color(0xFFE5484D),
             shadow = Color(0x00000000), isNight = true,
-            raised = Color(0xFF0C151C), overlay = Color(0xE0070D12),
-            lineFaint = Color(0x1A78DCFF), lineStrong = Color(0x6B78DCFF),
-            energyIn = Color(0xFFFFB24D), accentSoft = Color(0x243EE6FF), accentLine = Color(0x803EE6FF),
-            coverBg = Color(0xFF13202A), onAccent = Color(0xFF03161C), glow = 1f,
+            raised = Color(0xFF17191B), overlay = Color(0xC70E0F10),
+            lineFaint = Color(0xFF1C1F22), lineStrong = Color(0xFF3A3E43),
+            energyIn = Color(0xFF7FD6B5), accentSoft = Color(0x1F7FD6B5), accentLine = Color(0x807FD6B5),
+            coverBg = Color(0xFF1C1F22), onAccent = Color(0xFF0E0F10), glow = 0f,
         )
         val Day = DriveColors(
-            background = Color(0xFFE3E9ED), panel = Color(0xFFF6F9FA), border = Color(0x38062838),
-            text = Color(0xFF06141C), textDim = Color(0xFF33505E), textFaint = Color(0xFF4F6874),
-            chip = Color(0xFFFFFFFF), track = Color(0x38062838), accent = Color(0xFF006E87),
-            good = Color(0xFF006E87), warn = Color(0xFF8F5B00), danger = Color(0xFFC2182E),
+            background = Color(0xFFF4F3F0), panel = Color(0xFFF4F3F0), border = Color(0xFFDEDCD7),
+            text = Color(0xFF151617), textDim = Color(0xFF55585C), textFaint = Color(0xFF6A6D71),
+            chip = Color(0xFFFBFAF8), track = Color(0xFFDEDCD7), accent = Color(0xFF1B7F60),
+            good = Color(0xFF1B7F60), warn = Color(0xFFB26A00), danger = Color(0xFFB42318),
             shadow = Color(0x00000000), isNight = false,
-            raised = Color(0xFFFFFFFF), overlay = Color(0xF0F6F9FA),
-            lineFaint = Color(0x1A062838), lineStrong = Color(0x73062838),
-            energyIn = Color(0xFFA85200), accentSoft = Color(0x1A006E87), accentLine = Color(0x8C006E87),
-            coverBg = Color(0xFFDCE4E9), onAccent = Color(0xFFFFFFFF), glow = 0f,
+            raised = Color(0xFFFBFAF8), overlay = Color(0xD9F4F3F0),
+            lineFaint = Color(0xFFE8E6E1), lineStrong = Color(0xFFC4C1BB),
+            energyIn = Color(0xFF1B7F60), accentSoft = Color(0x1A1B7F60), accentLine = Color(0x801B7F60),
+            coverBg = Color(0xFFE8E6E1), onAccent = Color(0xFFFFFFFF), glow = 0f,
         )
     }
 }

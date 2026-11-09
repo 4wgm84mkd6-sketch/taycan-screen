@@ -73,6 +73,15 @@ object ObdEngine {
 
     private var job: Job? = null
 
+    /** Signal groups a screen has asked for ("power", "cells"); other groups aren't polled. */
+    @Volatile var activeGroups: Set<String> = emptySet()
+        private set
+
+    fun setGroup(group: String, on: Boolean) {
+        activeGroups = if (on) activeGroups + group else activeGroups - group
+        AppLog.info(TAG, "Polling ${if (on) "on" else "off"} for $group")
+    }
+
     // ---- Discovery (read-only search for blinker and gear signals) ----
     private val _discovery = MutableStateFlow<Discovery.State>(Discovery.State.Idle)
     val discovery: StateFlow<Discovery.State> = _discovery.asStateFlow()
@@ -272,7 +281,8 @@ object ObdEngine {
             }
             var answered = false
             for (sig in Taycan.POLLED) {
-                if (cycle % sig.pollEvery != 0L) continue
+                if (!sig.due(cycle)) continue
+                if (sig.group != null && sig.group !in activeGroups) continue
                 val cmd = sig.command
                 if (header != cmd.hdr || cmd.flowControl != customFlowControl) {
                     // Also re-run when flow control differs on the same module (e.g. 710 2AB6 fc vs 2A0C).
@@ -427,15 +437,19 @@ object ObdEngine {
     private fun record(sig: Signal, r: IsoTp.Result) {
         val now = System.currentTimeMillis()
         val didBytes = IsoTp.hexToBytes(sig.command.did)!!
-        val reading = when {
-            r is IsoTp.Result.Payload && r.bytes.size > 3 && r.bytes[0] == 0x62.toByte() &&
-                r.bytes[1] == didBytes[0] && r.bytes[2] == didBytes[1] -> {
-                val data = r.bytes.copyOfRange(3, r.bytes.size)
-                Reading(sig.decode(data), "${sig.command.rax}: ${r.bytes.toHex()}", now)
-            }
-            else -> Reading(null, "${sig.command.rax}: ${describe(r)}", now)
+        val ok = r is IsoTp.Result.Payload && r.bytes.size > 3 && r.bytes[0] == 0x62.toByte() &&
+            r.bytes[1] == didBytes[0] && r.bytes[2] == didBytes[1]
+        val data = if (ok) (r as IsoTp.Result.Payload).bytes.copyOfRange(3, r.bytes.size) else null
+        val raw = "${sig.command.rax}: " + if (r is IsoTp.Result.Payload) r.bytes.toHex() else describe(r)
+        val reading = Reading(data?.let { sig.decode(it) }, raw, now)
+        // Siblings come from the same reply (e.g. a tire's temperature and set point with its pressure).
+        val all = listOf(sig.id to reading) + sig.siblings.map { sib ->
+            val v = data?.let { sib.decode(it) }
+            AppLog.info("value", "${sib.id} = ${v?.let { "%.2f %s".format(it, sib.unit) } ?: "—"}")
+            sib.id to Reading(v, raw, now)
         }
-        _readings.value = _readings.value + (sig.id to reading)
+        _readings.value = _readings.value + all
+        if (data != null && sig.group == "cells") Cells.onModule(sig.id, data)
         if (reading.value != null) com.taycanscreen.app.ui.Boot.mark("First car data")
         if (sig == Taycan.SPEED_DIR) com.taycanscreen.app.audio.EqEngine.onSpeed(reading.value?.let { kotlin.math.abs(it) * 0.621371 })
         AppLog.info("value", "${sig.id} = ${reading.value?.let { "%.2f %s".format(it, sig.unit) } ?: "—"} (${reading.raw})")

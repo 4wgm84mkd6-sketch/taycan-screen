@@ -60,6 +60,57 @@ class TaycanDecodeTest {
         check(Taycan.OUTSIDE, "7B00562260900B4", 18.0)  // 2025
     }
 
+    private fun payloadData(sig: Signal, response: String): ByteArray {
+        val r = IsoTp.parse(response, sig.command.rax)
+        if (r !is IsoTp.Result.Payload) fail("parse failed: $r")
+        return (r as IsoTp.Result.Payload).bytes.copyOfRange(3, r.bytes.size)
+    }
+
+    // OBDb 2025 recordings, tests/test_cases/2025/commands/70B.775.2218A0–A3.
+    @Test fun tires() {
+        check(Taycan.TIRE_FR, "775100C6218A0268EE7\r77521DC028D369036CC", 3.525)
+        val fr = payloadData(Taycan.TIRE_FR, "775100C6218A0268EE7\r77521DC028D369036CC")
+        assertEquals(14.0, Taycan.TIRE_FR.siblings[0].decode(fr)!!, 0.01)   // temperature
+        assertEquals(3.6, Taycan.TIRE_FR.siblings[1].decode(fr)!!, 0.01)    // set point
+        check(Taycan.TIRE_FL, "775100C6218A1268EE7\r7752189028B359036CC", 3.475)
+        check(Taycan.TIRE_RL, "775100C6218A2268EE7\r77521AC0289369436CC", 3.425)
+        check(Taycan.TIRE_RR, "775100C6218A3268EE7\r77521ED02913B9436CC", 3.625)
+    }
+
+    @Test fun batteryHealth() {
+        check(Taycan.HV_SOH, "7ED056251E0390F", 91.2)   // 2025
+        check(Taycan.HV_SOH, "7ED056251E03967", 100.0)  // 2025
+    }
+
+    @Test fun motors() {
+        check(Taycan.EM_RPM_1, "7E8056211510742", 929.0)
+        check(Taycan.EM_TORQ_1, "7E80562115301F0", 15.5)
+        check(Taycan.EM_TORQ_1, "7E805621153FF10", -7.5)
+        check(Taycan.EM_TORQ_2, "7E80562115400F0", 7.5)
+        check(Taycan.EM_TORQ_2, "7E805621154FF00", -8.0)
+        assertNull(decode(Taycan.EM_RPM_1, "7E8056211517FFF")) // "not available"
+    }
+
+    @Test fun carTripConsumption() {
+        check(
+            Taycan.TRIP_USE_SHORT,
+            "77E1047620530001404\r77E213B0946A1896246\r77E2222200180000000\r77E230C12003A5F8000\r" +
+                "77E2430000000688C7B\r77E25C041DEBA5E8808\r77E26B6030000000688\r77E27C7BC03F7FF65B6\r" +
+                "77E289A71AC02C60000\r77E2900000000000000\r77E2A0000AAAAAAAAAA",
+            31.68,
+        )
+    }
+
+    @Test fun cellModule() {
+        val sig = Taycan.CELL_MODULES[0]
+        val resp = "7ED102E621850837EA4\r7ED2111000000007E90\r7ED2211000000007F08\r7ED2311000000007F08\r" +
+            "7ED2411000000007EE0\r7ED2511000000007EF4\r7ED2611000000000002"
+        check(sig, resp, 3.242)
+        val (v, soc) = Cells.decodeModule(payloadData(sig, resp))
+        assertEquals(listOf(3.242, 3.24, 3.252, 3.252, 3.248, 3.25), v.map { Math.round(it * 1000) / 1000.0 })
+        assertEquals(17.0, soc[0], 0.0)
+    }
+
     @Test fun speed() {
         check(Taycan.SPEED, "7E80462F40D00", 0.0)
         check(Taycan.SPEED, "7E80462F40DB9", 185.0)                 // 2025

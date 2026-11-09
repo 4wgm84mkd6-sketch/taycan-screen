@@ -6,6 +6,9 @@ import android.graphics.Paint
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -162,39 +165,74 @@ private fun turnIcon(s: Step?): ImageVector = when {
     else -> FIcons.TurnStraight
 }
 
-/** Next manoeuvre, top left of the map: arrow, distance to it, and what to do. */
+/** Short turn word for the v3 card: RIGHT, SLIGHT LEFT, U-TURN, ROUNDABOUT… */
+private fun turnWord(s: Step): String = when {
+    s.type == "arrive" -> "ARRIVE"
+    s.type in setOf("roundabout", "rotary", "roundabout turn") -> "ROUNDABOUT"
+    s.modifier == "uturn" -> "U-TURN"
+    s.type == "merge" -> "MERGE"
+    s.type == "on ramp" -> "RAMP"
+    s.type == "off ramp" -> "EXIT"
+    s.type == "fork" -> "KEEP ${(s.modifier ?: "").replace("slight ", "").uppercase()}".trim()
+    s.modifier != null -> s.modifier.uppercase()
+    else -> "CONTINUE"
+}
+
+/**
+ * Next manoeuvre (v3 board): distance, turn and where it heads in local terms ("RIGHT · DIAMOND HEAD"),
+ * the street, and the one after ("Then left, mauka, on Piʻikoi St").
+ */
 @Composable
 fun NextTurnBanner(c: DriveColors, modifier: Modifier) {
     val active by Nav.active.collectAsState()
     val p by Nav.progress.collectAsState()
     val busy by Nav.busy.collectAsState()
-    if (active == null) return
+    val mode by com.taycanscreen.app.nav.LocalDirections.mode.collectAsState()
+    val a = active ?: return
     val prog = p
     val step = prog?.next
-    Row(
-        modifier.width(330.dp).background(c.overlay, Filament.Cut).insetLine(c.accentLine).padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    val here = prog?.onRoute
+    fun dir(s: Step): String? = s.bearingAfter?.let { com.taycanscreen.app.nav.LocalDirections.name(it, here, mode) }
+    Column(
+        modifier.widthIn(min = 300.dp, max = 460.dp).background(c.overlay).border(1.dp, c.border).padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Box(Modifier.size(64.dp).background(c.accentSoft, Filament.CutS), contentAlignment = Alignment.Center) {
-            Icon(turnIcon(if (prog?.arrived == true) null else step).let { if (prog?.arrived == true) FIcons.Pin else it }, null, tint = c.accent, modifier = Modifier.size(46.dp))
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            when {
-                busy != null -> BasicText(busy!!.uppercase(), style = Filament.label(15.sp, c.accent, 0.12f))
-                prog == null -> BasicText("ROUTE READY", style = Filament.label(15.sp, c.accent, 0.12f))
-                prog.arrived -> {
-                    BasicText("ARRIVED", style = Filament.label(15.sp, c.accent, 0.14f))
-                    BasicText(active!!.dest.name, style = Filament.text(19.sp, 600, c.text), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
-                else -> {
+        when {
+            busy != null -> BasicText(busy!!.uppercase(), style = Filament.label(12.sp, c.accent, 0.12f))
+            prog == null -> BasicText("ROUTE READY", style = Filament.label(12.sp, c.accent, 0.12f))
+            prog.arrived -> {
+                BasicText("ARRIVED", style = Filament.label(12.sp, c.accent, 0.12f))
+                BasicText(a.dest.name, style = Filament.text(20.sp, 500, c.text), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            else -> {
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    BasicText(RouteMath.formatDistance(prog.toNextM), Modifier.alignByBaseline(), style = Filament.num(36.sp, 300, c.text))
                     BasicText(
-                        RouteMath.formatDistance(prog.toNextM),
-                        style = Filament.num(34.sp, 600, c.text, if (c.glow > 0f) c.accent.copy(alpha = 0.4f) else null),
+                        if (prog.offRoute) "RE-ROUTING" else step?.let { s -> listOfNotNull(turnWord(s), dir(s)).joinToString(" · ") } ?: "CONTINUE",
+                        Modifier.alignByBaseline(),
+                        style = Filament.label(12.sp, if (prog.offRoute) c.warn else c.accent, 0.12f),
                     )
+                }
+                BasicText(
+                    step?.let { if (it.type == "arrive") a.dest.name else it.name.ifBlank { it.ref ?: RouteMath.instruction(it) } } ?: a.dest.name,
+                    style = Filament.text(20.sp, 500, c.text), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                // The manoeuvre after this one.
+                val steps = a.route.steps
+                val idx = step?.let { steps.indexOf(it) } ?: -1
+                val then = steps.getOrNull(idx + 1)
+                if (then != null) {
+                    val word = when {
+                        then.type == "arrive" -> null
+                        then.modifier == "uturn" -> "U-turn"
+                        then.modifier != null -> then.modifier
+                        else -> "continue"
+                    }
                     BasicText(
-                        if (prog.offRoute) "Off route: re-routing" else step?.let { RouteMath.instruction(it) } ?: "Continue to your destination",
-                        style = Filament.text(18.sp, 500, if (prog.offRoute) c.warn else c.textDim), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        if (then.type == "arrive") "Then arrive at ${a.dest.name}"
+                        else "Then $word" + (dir(then)?.let { ", ${it.lowercase().replace("ʻewa", "ʻEwa").replace("diamond head", "Diamond Head")}" } ?: "") +
+                            (then.name.ifBlank { then.ref ?: "" }.takeIf { it.isNotBlank() }?.let { " on $it" } ?: ""),
+                        style = Filament.text(15.sp, 400, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -202,26 +240,26 @@ fun NextTurnBanner(c: DriveColors, modifier: Modifier) {
     }
 }
 
-/** Arrival time, time and distance left, hand-off to Waze / Google Maps, end route. Bottom centre. */
+/** Arrival time, time and distance left, battery on arrival, hand-off, end (v3 board, bottom right). */
 @Composable
 fun RouteCard(c: DriveColors, modifier: Modifier) {
     val active by Nav.active.collectAsState()
     val p by Nav.progress.collectAsState()
     val busy by Nav.busy.collectAsState()
     val error by Nav.error.collectAsState()
+    val readings by com.taycanscreen.app.obd.ObdEngine.readings.collectAsState()
     val context = LocalContext.current
     val a = active
     if (a == null) {
-        // Only a message to show (no route): searching for a route or why it failed.
         val msg = error ?: busy ?: return
         Row(
-            modifier.height(64.dp).background(c.overlay, Filament.CutS).insetLine(if (error != null) c.warn else c.accentLine).padding(start = 18.dp),
+            modifier.height(64.dp).background(c.overlay).border(1.dp, if (error != null) c.warn else c.border).padding(start = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            BasicText(msg, style = Filament.text(18.sp, 500, if (error != null) c.warn else c.text), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Box(Modifier.size(64.dp).clickable { Nav.clearError(); if (busy != null) Nav.stop() }, contentAlignment = Alignment.Center) {
-                Icon(FIcons.Close, "Dismiss", tint = c.textDim, modifier = Modifier.size(24.dp))
+            BasicText(msg, style = Filament.text(17.sp, 500, if (error != null) c.warn else c.text), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.size(56.dp).clickable { Nav.clearError(); if (busy != null) Nav.stop() }, contentAlignment = Alignment.Center) {
+                Icon(FIcons.Close, "Dismiss", tint = c.textDim, modifier = Modifier.size(22.dp))
             }
         }
         return
@@ -230,18 +268,32 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
     val remaining = prog?.remainingM ?: a.route.distanceM
     val arrive = prog?.arriveAtMs ?: (System.currentTimeMillis() + (a.route.durationS * 1000).toLong())
     val minutes = ((arrive - System.currentTimeMillis()) / 60_000.0).coerceAtLeast(0.0)
+    val now = System.currentTimeMillis()
+    val soc = readings[com.taycanscreen.app.obd.Taycan.SOC_DISPLAY.id]?.takeIf { now - it.at <= com.taycanscreen.app.obd.Taycan.SOC_DISPLAY.staleMs }?.value
+    val range = readings[com.taycanscreen.app.obd.Taycan.RANGE.id]?.takeIf { now - it.at <= com.taycanscreen.app.obd.Taycan.RANGE.staleMs }?.value
+    val battery = com.taycanscreen.app.car.Arrival.pct(remaining, soc, range)
     Row(
-        modifier.height(80.dp).background(c.overlay, Filament.Cut).insetLine(c.border).padding(start = 20.dp, end = 6.dp),
+        modifier.background(c.overlay).border(1.dp, c.border).padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        Stat("ARRIVE", Instant.ofEpochMilli(arrive).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm")), c, c.accent)
-        Stat("TIME", if (minutes < 60) "${minutes.toInt()} min" else "%d h %02d".format((minutes / 60).toInt(), (minutes % 60).toInt()), c, c.text)
-        Stat("LEFT", RouteMath.formatDistance(remaining), c, c.text)
-        Box(Modifier.width(1.dp).height(44.dp).background(c.border))
-        CardButton(handoffLabel(context), c) { handOff(context, a.dest.lat, a.dest.lon) }
-        Box(Modifier.size(64.dp).clickable { AppLog.info("nav", "Route ended by the owner"); Nav.stop() }, contentAlignment = Alignment.Center) {
-            Icon(FIcons.Close, "End route", tint = c.text, modifier = Modifier.size(26.dp))
+        BasicText(Instant.ofEpochMilli(arrive).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm")), style = Filament.num(22.sp, 400, c.text))
+        BasicText(
+            (if (minutes < 60) "${minutes.toInt()} MIN" else "%d H %02d".format((minutes / 60).toInt(), (minutes % 60).toInt())) +
+                " · " + RouteMath.formatDistance(remaining).uppercase(),
+            style = Filament.label(12.sp, c.textDim, 0.08f),
+        )
+        if (battery != null) {
+            BasicText(
+                "${battery.roundToInt().coerceAtLeast(0)}% ON ARRIVAL",
+                style = Filament.label(12.sp, when { battery < 5 -> c.danger; battery < 10 -> c.warn; else -> c.accent }, 0.08f),
+            )
+        }
+        Box(Modifier.height(48.dp).clickable { handOff(context, a.dest.lat, a.dest.lon) }.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+            BasicText(handoffLabel(context), style = Filament.label(12.sp, c.textDim, 0.12f))
+        }
+        Box(Modifier.height(48.dp).clickable { AppLog.info("nav", "Route ended by the owner"); Nav.stop() }.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            BasicText("END", style = Filament.label(12.sp, c.textDim, 0.12f))
         }
     }
 }
