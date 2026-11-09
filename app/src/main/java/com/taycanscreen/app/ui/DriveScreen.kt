@@ -285,8 +285,8 @@ private fun DriveContent(
 
     val dens = LocalDensity.current.density
     Box(Modifier.fillMaxSize().background(c.background)) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().weight(1f)) {
+        // Vehicle panel full height on the left (owner, 2026-11-09); map with the dock under it on the right.
+        Row(Modifier.fillMaxSize()) {
                 Column(
                     Modifier.width(448.dp).fillMaxHeight().background(c.panel)
                         .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
@@ -337,7 +337,8 @@ private fun DriveContent(
                     }
                 }
                 // The map keeps running underneath while Music is open, so it's current when you close it.
-                Box(Modifier.weight(1f).fillMaxHeight()) {
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                Box(Modifier.fillMaxWidth().weight(1f)) {
                     MapArea(c, v.outsideF, locationGranted, gps, targets, Modifier.fillMaxSize())
                     if (panel == "search") SearchPanel(
                         c, v.speedMph?.x, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
@@ -357,7 +358,6 @@ private fun DriveContent(
                         }
                     }
                 }
-            }
             Dock(
                 c, themeMode, panel,
                 carOk = carOk, gpsOk = gps.fix != null, spotifyOk = spotifyOk,
@@ -367,6 +367,7 @@ private fun DriveContent(
                 onOpenAudio = { panel = if (panel == "audio") null else "audio" },
                 modifier = Modifier.fillMaxWidth().height(96.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() },
             )
+                }
         }
         if (showStartup) {
             StartupOverlay(
@@ -407,54 +408,59 @@ private fun FilamentNowPlaying(c: DriveColors, now: Long, onOpenMusic: () -> Uni
                 }
             },
     ) {
+        // Bigger now playing (owner, 2026-11-09): the full-height panel has room for it.
         Column(
             Modifier.fillMaxWidth().background(c.raised, Filament.Cut).clickable(onClick = onOpenMusic)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(Modifier.height(56.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(56.dp).clip(RoundedCornerShape(4.dp)).background(c.coverBg), contentAlignment = Alignment.Center) {
+            Row(Modifier.height(96.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(Modifier.size(96.dp).clip(RoundedCornerShape(6.dp)).background(c.coverBg), contentAlignment = Alignment.Center) {
                     val bmp = art
                     if (connected && bmp != null) {
                         Image(bmp.asImageBitmap(), contentDescription = "Album art", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     } else {
-                        Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.size(24.dp))
+                        Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.size(36.dp))
                     }
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     BasicText(
                         if (connected) np?.title ?: "Nothing playing" else "Spotify",
-                        style = Filament.text(20.sp, 600, c.text), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = Filament.text(24.sp, 600, c.text), maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                     BasicText(
                         if (connected) np?.artist?.ifBlank { null } ?: "Tap to browse" else status.detail.ifBlank { "Connecting…" },
-                        style = Filament.text(15.sp, 400, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = Filament.text(18.sp, 400, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
             val track = np
             val pos = if (track == null) 0L else (track.positionMs + if (track.paused) 0L else (now - track.positionAt)).coerceIn(0L, track.durationMs)
             val pct = if (track == null || track.durationMs <= 0) 0f else pos.toFloat() / track.durationMs
-            Box(Modifier.fillMaxWidth().height(2.dp).background(c.lineFaint)) {
-                Box(Modifier.fillMaxWidth(pct.coerceIn(0f, 1f)).fillMaxHeight().background(c.accent))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.fillMaxWidth().height(4.dp).background(c.lineFaint)) {
+                    Box(Modifier.fillMaxWidth(pct.coerceIn(0f, 1f)).fillMaxHeight().background(c.accent))
+                }
+                Row {
+                    BasicText(if (track == null) NO_DATA else mmss(pos), style = Filament.label(14.sp, c.textFaint, 0f))
+                    Spacer(Modifier.weight(1f))
+                    BasicText(if (track == null) NO_DATA else mmss(track.durationMs), style = Filament.label(14.sp, c.textFaint, 0f))
+                }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                BasicText(
-                    if (track == null) "$NO_DATA / $NO_DATA" else "${mmss(pos)} / ${mmss(track.durationMs)}",
-                    style = Filament.label(13.sp, c.textFaint, 0f),
-                )
-                Spacer(Modifier.weight(1f))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconTap(FIcons.Prev, "Previous track", c.text, 28) { SpotifyController.previous() }
-                    val playing = track?.paused == false
-                    Box(
-                        Modifier.size(72.dp).background(c.accentSoft, Filament.CutS).insetLine(c.accentLine)
-                            .clickable { SpotifyController.togglePlay() },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", tint = c.accent, modifier = Modifier.size(30.dp))
-                    }
-                    IconTap(FIcons.Next, "Next track", c.text, 28) { SpotifyController.next() }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)) {
+                Box(Modifier.size(88.dp, 76.dp).clickable { SpotifyController.previous() }, contentAlignment = Alignment.Center) {
+                    Icon(FIcons.Prev, "Previous track", tint = c.text, modifier = Modifier.size(34.dp))
+                }
+                val playing = track?.paused == false
+                Box(
+                    Modifier.size(108.dp, 76.dp).background(c.accentSoft, Filament.CutS).insetLine(c.accentLine)
+                        .clickable { SpotifyController.togglePlay() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", tint = c.accent, modifier = Modifier.size(38.dp))
+                }
+                Box(Modifier.size(88.dp, 76.dp).clickable { SpotifyController.next() }, contentAlignment = Alignment.Center) {
+                    Icon(FIcons.Next, "Next track", tint = c.text, modifier = Modifier.size(34.dp))
                 }
             }
         }
@@ -494,7 +500,7 @@ private fun Dock(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
-            Modifier.width(448.dp).padding(start = 20.dp),
+            Modifier.padding(start = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
@@ -523,7 +529,7 @@ private fun Dock(
             DockButton(themeIcon, "Day/night: ${themeMode.label()}", false, c, label = themeMode.label().uppercase(), onClick = onCycleTheme)
             DockButton(FIcons.Setup, "Setup", false, c, onClick = onOpenSetup)
         }
-        VolumeControl(c, Modifier.width(300.dp).padding(end = 20.dp))
+        VolumeControl(c, Modifier.padding(end = 12.dp))
     }
 }
 
@@ -547,7 +553,7 @@ private fun DockButton(
     onClick: () -> Unit,
 ) {
     Box(
-        Modifier.size(104.dp, 72.dp)
+        Modifier.size(96.dp, 72.dp)
             .background(if (active) c.accentSoft else Color.Transparent, Filament.CutS)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,

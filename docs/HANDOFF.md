@@ -131,3 +131,8 @@ I work entirely from my iPhone. You can't reach the box directly, so:
   - Map size button under Recenter ("Aa", SIZE L/M/S; stored): tilesScaleFactor 2.0 / 1.5 / 1.0 (osmdroid already halves 512 px tiles, so 1.0 = old text size, 2.0 ≈ Porsche). Default L.
   - Gauge: speed, MPH and the power row placed by fixed text baselines (164 / 194 / 244 design px) so font changes can't overlap them.
   - Outside temperature: our chip showed 32 °F (car 78 °F). 7E0 22 1004 (TAYCAN_AAT) answers 0 on this car (198/198 readings) and in every OBDb recording, so it's useless. Now OBDb 746/7B0 22 2609 TAYCAN_HVAC_OUTSIDE_T (climate module, default session, fc, 16-bit signed /10 °C; 2025 recordings 9.5 and 18 °C), every 10th cycle; 1004 no longer polled. To verify against the car's display.
+- 2026-11-09: Owner: vehicle panel full height with a bigger now-playing card; battery bar (and 12 V) green → yellow → red with charge; satellite map. Build 146:
+  - Layout: panel 448 × full height (720); map and dock (96) share the right side; dock buttons 96 wide, status lights next to the Vehicle button, volume on the right.
+  - Now playing: 96 px cover, 2-line title (24), artist (18), 4 px progress with elapsed/total, 88/108/88 × 76 buttons.
+  - Charge colours: HV bar hue 0→120 between 10 % and 90 % SoC (red, yellow ~50 %, green); 12 V (ring, readout) between 60 % and 90 % (a 12 V battery is unhealthy well before empty). Night brighter, day darker for contrast.
+  - Satellite: MAP/SAT button (stored). Esri World Imagery (z/y/x, 256 px, max 19; free for personal use with credit) + CARTO dark_only_labels @2x overlay for street names; dimmed at night. 256 px imagery is softer at map size L than the 2x map tiles.

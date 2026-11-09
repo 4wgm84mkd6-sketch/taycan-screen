@@ -120,6 +120,27 @@ private val NightTint by lazy {
 }
 
 /**
+ * Satellite (owner, 2026-11-09): Esri World Imagery, free without an account for personal use when
+ * credited ("Imagery © Esri, Maxar, Earthstar Geographics"). Esri's URL order is z/y/x.
+ */
+private class EsriImagery : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
+    "EsriWorldImagery", 0, 19, 256, "",
+    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"),
+    "Imagery © Esri, Maxar, Earthstar Geographics",
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String =
+        baseUrl + org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex) + "/" +
+            org.osmdroid.util.MapTileIndex.getY(pMapTileIndex) + "/" + org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
+}
+private val SatelliteTiles by lazy { EsriImagery() }
+/** Street and place names over the imagery: CARTO's light-on-dark label layer at @2x (sharp at any size). */
+private val SatelliteLabels by lazy { cartoSource("CartoDarkLabels2x", "dark_only_labels") }
+/** Imagery is bright; dim it at night so it doesn't glare. */
+private val SatelliteNight by lazy {
+    ColorMatrixColorFilter(ColorMatrix().apply { setScale(0.55f, 0.58f, 0.62f, 1f) })
+}
+
+/**
  * Map size (owner, 2026-11-09: Porsche's map reads better). osmdroid already draws a 512 px tile at
  * the size of a 256 px one, so 1.0 = the old map's text size (now sharp); 2.0 ≈ Porsche's.
  */
@@ -187,6 +208,27 @@ fun MapArea(
     val prefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
     var lastTouchAt by remember { mutableLongStateOf(0L) }
     var northUp by remember { mutableStateOf(prefs.getBoolean("north_up", false)) }
+    var satellite by remember { mutableStateOf(prefs.getString("map_style", "map") == "satellite") }
+    val labelsOverlay = remember(mapView) {
+        org.osmdroid.views.overlay.TilesOverlay(
+            org.osmdroid.tileprovider.MapTileProviderBasic(context, SatelliteLabels), context,
+        ).apply {
+            loadingBackgroundColor = android.graphics.Color.TRANSPARENT
+            loadingLineColor = android.graphics.Color.TRANSPARENT
+        }
+    }
+    DisposableEffect(labelsOverlay) {
+        onDispose {
+            mapView.overlays.remove(labelsOverlay)
+            labelsOverlay.onDetach(mapView)
+        }
+    }
+    // Labels sit directly above the tiles (under the route and the car marker).
+    LaunchedEffect(satellite) {
+        mapView.overlays.remove(labelsOverlay)
+        if (satellite) mapView.overlays.add(0, labelsOverlay)
+        mapView.invalidate()
+    }
     var mapSize by remember {
         mutableStateOf(runCatching { MapSize.valueOf(prefs.getString("map_size", "Large")!!) }.getOrDefault(MapSize.Large))
     }
@@ -420,9 +462,20 @@ fun MapArea(
             factory = { mapView },
             modifier = Modifier.fillMaxSize().clipToBounds(),
             update = {
-                val tiles = if (c.isNight) NightTiles else DayTiles
+                val tiles = when {
+                    satellite -> SatelliteTiles
+                    c.isNight -> NightTiles
+                    else -> DayTiles
+                }
                 if (it.tileProvider.tileSource.name() != tiles.name()) it.setTileSource(tiles)
-                it.overlayManager.tilesOverlay.setColorFilter(if (c.isNight) NightTint else null)
+                it.overlayManager.tilesOverlay.setColorFilter(
+                    when {
+                        satellite && c.isNight -> SatelliteNight
+                        satellite -> null
+                        c.isNight -> NightTint
+                        else -> null
+                    },
+                )
                 it.invalidate()
             },
         )
@@ -509,6 +562,19 @@ fun MapArea(
                 BasicText("Aa", style = Filament.text(24.sp, 600, c.accent))
                 BasicText("SIZE ${mapSize.short}", style = Filament.label(11.sp, c.textDim, 0.08f))
             }
+            // Map / satellite.
+            Column(
+                Modifier.size(72.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
+                    satellite = !satellite
+                    prefs.edit().putString("map_style", if (satellite) "satellite" else "map").apply()
+                    AppLog.info("map", if (satellite) "Satellite view" else "Map view")
+                },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(FIcons.Layers, if (satellite) "Satellite (tap for map)" else "Map (tap for satellite)", tint = c.accent, modifier = Modifier.size(26.dp))
+                BasicText(if (satellite) "SAT" else "MAP", Modifier.padding(top = 2.dp), style = Filament.label(11.sp, c.textDim, 0.08f))
+            }
             Box(Modifier.background(c.overlay, Filament.CutS).insetLine(c.border)) {
                 MapButton(FIcons.Recenter, "Recenter", c.text) {
                     locationOverlay?.let { o ->
@@ -524,7 +590,8 @@ fun MapArea(
         RouteCard(c, Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
 
         BasicText(
-            "© OpenStreetMap contributors © CARTO",
+            if (satellite) "Imagery © Esri, Maxar, Earthstar Geographics · © OpenStreetMap contributors © CARTO"
+            else "© OpenStreetMap contributors © CARTO",
             Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp)
                 .background(c.overlay).padding(horizontal = 6.dp, vertical = 2.dp),
             style = Filament.text(11.sp, 400, c.textFaint),

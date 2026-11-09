@@ -122,6 +122,7 @@ object FIcons {
     val Prev = stroke("prev", 1.6f, "M19 5L9 12l10 7z M5 5v14")
     val Next = stroke("next", 1.6f, "M5 5l10 7-10 7z M19 5v14")
     val Close = stroke("close", 1.6f, "M5 5l14 14 M19 5L5 19")
+    val Layers = stroke("layers", 1.6f, "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5 M3 17.5l9 5 9-5")
     val Search = stroke("search", 1.6f, "M4 10.5a6.5 6.5 0 1 0 13 0a6.5 6.5 0 1 0-13 0 M15.5 15.5L21 21")
     val Pin = stroke("pin", 1.6f, "M12 21s-6.5-6.2-6.5-11.5a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21z M10 9.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0")
     val Recent = stroke("recent", 1.6f, "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M12 7v5l3 2")

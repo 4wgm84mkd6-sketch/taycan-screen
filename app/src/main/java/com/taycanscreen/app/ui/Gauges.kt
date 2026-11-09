@@ -63,6 +63,18 @@ import kotlin.math.sqrt
 
 const val NO_DATA = "—"
 
+/**
+ * Charge colour (owner, 2026-11-09): green when full, through yellow, to red when low.
+ * HV battery: red at 10 %, yellow about 50 %, green from 90 %.
+ */
+fun chargeColor(pct: Double, c: DriveColors, low: Double = 10.0, high: Double = 90.0): Color {
+    val f = ((pct - low) / (high - low)).coerceIn(0.0, 1.0).toFloat()
+    return Color.hsv(120f * f, if (c.isNight) 0.78f else 0.88f, if (c.isNight) 1.0f else 0.70f)
+}
+
+/** 12 V battery on its own scale: a 12 V battery is unhealthy well before it's empty (red ≤ 60 %, green ≥ 90 %). */
+fun lowVoltageColor(pct: Double, c: DriveColors): Color = chargeColor(pct, c, low = 60.0, high = 90.0)
+
 /** A value from the car with its freshness: [dim] once it's getting old (shown faded), gone once stale. */
 data class V(val x: Double, val dim: Boolean)
 
@@ -249,20 +261,15 @@ fun BatteryBlock(soc: V?, rangeMi: V?, packC: V?, lowVoltage: LowVoltageValues, 
             }
         }
         val pct = soc?.x ?: 0.0
-        val col = when {
-            soc == null -> c.lineFaint
-            pct <= 10 -> c.danger
-            pct <= 20 -> c.warn
-            else -> c.accent
-        }
+        val col = if (soc == null) c.lineFaint else chargeColor(pct, c)
         val filled = (pct / 5.0).roundToInt()
         Row(Modifier.fillMaxWidth().height(14.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             for (k in 0 until 20) {
                 val on = soc != null && k < filled
                 Box(
                     Modifier.weight(1f).fillMaxHeight()
-                        .then(if (on && col == c.accent && c.glow > 0f) Modifier.drawBehind {
-                            drawRect(c.accent.copy(alpha = 0.22f), Offset(-2 * density, -2 * density), Size(size.width + 4 * density, size.height + 4 * density))
+                        .then(if (on && c.glow > 0f) Modifier.drawBehind {
+                            drawRect(col.copy(alpha = 0.22f), Offset(-2 * density, -2 * density), Size(size.width + 4 * density, size.height + 4 * density))
                         } else Modifier)
                         .background(if (on) col else c.lineFaint),
                 )
@@ -277,7 +284,7 @@ fun BatteryBlock(soc: V?, rangeMi: V?, packC: V?, lowVoltage: LowVoltageValues, 
             Spacer(Modifier.weight(1f))
             BasicText(
                 lowVoltageSummary(lowVoltage) + "  ›",
-                style = Filament.label(13.sp, c.textDim, 0f),
+                style = Filament.label(13.sp, lowVoltage.soc?.let { lowVoltageColor(it.x, c) } ?: c.textDim, 0f),
             )
         }
     }

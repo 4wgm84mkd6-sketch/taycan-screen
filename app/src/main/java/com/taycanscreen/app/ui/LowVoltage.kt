@@ -83,7 +83,7 @@ fun LowVoltagePanel(lv: LowVoltageValues, c: DriveColors, onClose: () -> Unit, m
 @Composable
 private fun SocRing(soc: V?, c: DriveColors) {
     val pct = (soc?.x ?: 0.0).coerceIn(0.0, 100.0).toFloat()
-    val col = if (soc != null && pct < 50f) c.warn else c.accent
+    val col = if (soc != null) lowVoltageColor(soc.x, c) else c.accent
     Box(Modifier.size(300.dp).alpha(if (soc?.dim == true) 0.45f else 1f), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val u = density
