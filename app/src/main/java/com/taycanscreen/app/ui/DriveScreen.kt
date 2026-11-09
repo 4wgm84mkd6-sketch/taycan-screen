@@ -620,6 +620,29 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
             RoundButton(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", c, 76, true) { SpotifyController.togglePlay() }
             RoundButton(FIcons.Next, "Next track", c, 64, false) { SpotifyController.next() }
         }
+        // One-tap podcast (owner, 2026-11-09): newest "Up First" from NPR.
+        val context = LocalContext.current
+        val busy by com.taycanscreen.app.music.QuickPlay.busy.collectAsState()
+        val msg by com.taycanscreen.app.music.QuickPlay.message.collectAsState()
+        val show = com.taycanscreen.app.music.QuickPlay.UP_FIRST
+        Row(
+            Modifier.fillMaxWidth().height(52.dp).border(1.dp, c.border)
+                .clickable { com.taycanscreen.app.music.QuickPlay.play(context, show) }
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(FIcons.Play, null, tint = c.accent, modifier = Modifier.size(18.dp))
+            BasicText("UP FIRST", style = Filament.label(13.sp, c.text, 0.12f, 500))
+            BasicText("NPR · newest episode", Modifier.weight(1f), style = Filament.text(15.sp, 400, c.textDim), maxLines = 1)
+            if (busy == show.key) BasicText("…", style = Filament.label(15.sp, c.accent, 0f))
+        }
+        if (msg != null) {
+            BasicText(
+                msg!!, Modifier.clickable { com.taycanscreen.app.music.QuickPlay.clearMessage() },
+                style = Filament.text(14.sp, 400, c.warn), maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

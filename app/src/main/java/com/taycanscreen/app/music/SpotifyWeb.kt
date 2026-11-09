@@ -111,6 +111,25 @@ object SpotifyWeb {
         }
     }
 
+    /** Finds a podcast by name (and publisher, if given) via Web API search. Returns its spotify:show: URI. */
+    suspend fun findShow(name: String, publisher: String?): String? {
+        val q = URLEncoder.encode(name + (publisher?.let { " $it" } ?: ""), "UTF-8")
+        val shows = get("$API/search?q=$q&type=show&limit=10").optJSONObject("shows")?.optJSONArray("items")?.objects() ?: emptyList()
+        val pick = shows.firstOrNull {
+            it.optString("name").contains(name, ignoreCase = true) &&
+                (publisher == null || it.optString("publisher").contains(publisher, ignoreCase = true))
+        } ?: shows.firstOrNull { it.optString("name").contains(name, ignoreCase = true) }
+        AppLog.info(TAG, "Show \"$name\": ${pick?.let { "${it.optString("name")} by ${it.optString("publisher")} (${it.optString("uri")})" } ?: "not found"}")
+        return pick?.optString("uri")?.takeIf { it.startsWith("spotify:show:") }
+    }
+
+    /** Newest episode of a show (Spotify lists them newest first). */
+    suspend fun latestEpisode(showUri: String): MusicItem? {
+        val id = showUri.substringAfterLast(':')
+        val ep = get("$API/shows/$id/episodes?limit=1").optJSONArray("items")?.objects()?.firstOrNull() ?: return null
+        return episode(ep, null, null)
+    }
+
     private fun track(t: JSONObject, contextUri: String?, index: Int?) = MusicItem(
         title = t.optString("name"),
         subtitle = artists(t) + (t.optJSONObject("album")?.optString("name")?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
