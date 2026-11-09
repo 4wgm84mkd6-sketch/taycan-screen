@@ -40,6 +40,9 @@ object SpeedLimit {
     private var lastAskAt = 0L
     private var lastAskPos: LatLon? = null
     private var misses = 0
+    /** After a failed lookup, wait before asking again (the public servers are sometimes slow). */
+    private var backoffUntil = 0L
+    private var failures = 0
 
     /** From the map on each fix (main thread). */
     fun onLocation(lat: Double, lon: Double, heading: Float?, speedKmh: Double?) {
@@ -47,7 +50,8 @@ object SpeedLimit {
         val p = LatLon(lat, lon)
         // Stale after 2 minutes without a fresh answer (e.g. lost signal).
         _limit.value?.let { if (now - it.at > 120_000) _limit.value = null }
-        if (busy || now - lastAskAt < 6_000) return
+        if (busy || now - lastAskAt < 6_000 || now < backoffUntil) return
+        if (!com.taycanscreen.app.net.NetMonitor.online.value) return
         val moved = lastAskPos?.let { RouteMath.metres(it, p) } ?: Double.MAX_VALUE
         if (moved < 100 && now - lastAskAt < 60_000) return
         if ((speedKmh ?: 0.0) < 3.0 && moved < 100 && _limit.value != null) return
@@ -68,8 +72,11 @@ object SpeedLimit {
                 } else if (++misses >= 2) {
                     _limit.value = null
                 }
+                failures = 0
             } catch (e: Exception) {
-                AppLog.warn(TAG, "Speed limit lookup failed: ${e.javaClass.simpleName}: ${e.message}")
+                failures++
+                backoffUntil = System.currentTimeMillis() + minOf(300_000L, 20_000L * failures)
+                AppLog.warn(TAG, "Speed limit lookup failed (${failures}×, next try in ${minOf(300, 20 * failures)} s): ${e.javaClass.simpleName}: ${e.message}")
             } finally {
                 busy = false
             }
@@ -77,15 +84,15 @@ object SpeedLimit {
     }
 
     private fun query(p: LatLon): String {
-        val q = "[out:json][timeout:10];way(around:30,%.6f,%.6f)[highway][maxspeed];out tags geom;".format(Locale.US, p.lat, p.lon)
+        val q = "[out:json][timeout:20];way(around:30,%.6f,%.6f)[highway][maxspeed];out tags geom;".format(Locale.US, p.lat, p.lon)
         var last: Exception? = null
         for (url in ENDPOINTS) {
             try {
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     doOutput = true
-                    connectTimeout = 8_000
-                    readTimeout = 12_000
+                    connectTimeout = 10_000
+                    readTimeout = 25_000
                     setRequestProperty("User-Agent", UA)
                     setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 }

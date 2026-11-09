@@ -440,11 +440,12 @@ private fun V3Panel(
             Spacer(Modifier.height(20.dp))
             // Speed, with gear, the road's limit and the unit on the right.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                // No speed yet: a short faint dash (an em dash at this size is a heavy bar).
                 BasicText(
-                    v.speedMph?.x?.roundToInt()?.toString() ?: NO_DATA,
+                    v.speedMph?.x?.roundToInt()?.toString() ?: "–",
                     Modifier.weight(1f).capBox(168.dp).alpha(if (v.speedMph?.dim == true) 0.45f else 1f)
                         .onGloballyPositioned { targets.arc = it.boundsInRoot().center },
-                    style = Filament.num(168.sp, 300, c.text).copy(letterSpacing = (-8).sp),
+                    style = Filament.num(168.sp, 300, if (v.speedMph == null) c.textFaint else c.text).copy(letterSpacing = (-8).sp),
                     maxLines = 1,
                 )
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -475,9 +476,9 @@ private fun V3Panel(
             Column(Modifier.fillMaxWidth().clickable { onLedger("TRIP") }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     BasicText(
-                        soc?.x?.roundToInt()?.toString() ?: NO_DATA,
+                        soc?.x?.roundToInt()?.toString() ?: "–",
                         Modifier.alignByBaseline().alpha(if (soc?.dim == true) 0.45f else 1f),
-                        style = Filament.num(56.sp, 300, col).copy(letterSpacing = (-1.5).sp),
+                        style = Filament.num(56.sp, 300, if (soc == null) c.textFaint else col).copy(letterSpacing = (-1.5).sp),
                     )
                     BasicText("%", Modifier.alignByBaseline(), style = Filament.num(26.sp, 300, col))
                     Spacer(Modifier.weight(1f))

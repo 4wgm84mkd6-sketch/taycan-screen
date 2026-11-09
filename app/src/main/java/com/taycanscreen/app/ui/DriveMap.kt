@@ -83,6 +83,7 @@ import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.obd.Taycan
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
@@ -99,27 +100,33 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * Map tiles: CARTO basemaps (OpenStreetMap data) at double resolution (512 px "@2x" tiles), so the map
- * can be shown larger, Porsche-style, and stay sharp. OSM's own tiles are 256 px and blur when enlarged.
- * Day = Voyager, night = Dark Matter with a Filament teal tint. Free for this kind of personal use
- * with the "© OpenStreetMap contributors © CARTO" credit shown on the map.
+ * Map tiles: OpenStreetMap's own (no key needed), tinted to the v3 look. CARTO's @2x tiles (builds
+ * 144–149) now answer "API KEY REQUIRED" (seen in the owner's 2026-11-09 screenshot), and no key may
+ * ship in the APK.
+ *  - Day: calm and light (70 % desaturated, slightly lifted), close to the v3 day board.
+ *  - Night: Filament's OSM night matrix (labels light, arterials lit), then 70 % desaturated to v3 grey.
  */
-private fun cartoSource(name: String, path: String) = org.osmdroid.tileprovider.tilesource.XYTileSource(
-    name, 0, 20, 512, "@2x.png",
-    arrayOf("a", "b", "c", "d").map { "https://$it.basemaps.cartocdn.com/$path/" }.toTypedArray(),
-    "© OpenStreetMap contributors © CARTO",
-)
-// v3: quiet map styles (Positron by day, Dark Matter at night), so the mint route stands out.
-private val DayTiles by lazy { cartoSource("CartoPositron2x", "light_all") }
-private val NightTiles by lazy { cartoSource("CartoDark2x", "dark_all") }
-/** Dark Matter is neutral grey; tint it towards Filament's teal (greys → cyan-leaning, labels stay light). */
-private val NightTint by lazy {
-    ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-        0.80f, 0f, 0f, 0f, 0f,
-        0f, 0.98f, 0f, 0f, 6f,
-        0f, 0f, 1.08f, 0f, 12f,
+private val DayTiles get() = TileSourceFactory.MAPNIK
+private val NightTiles get() = TileSourceFactory.MAPNIK
+private val DayFilter by lazy {
+    val m = ColorMatrix().apply { setSaturation(0.3f) }
+    m.postConcat(ColorMatrix(floatArrayOf(
+        0.93f, 0f, 0f, 0f, 14f,
+        0f, 0.93f, 0f, 0f, 13f,
+        0f, 0f, 0.93f, 0f, 11f,
         0f, 0f, 0f, 1f, 0f,
     )))
+    ColorMatrixColorFilter(m)
+}
+private val NightTint by lazy {
+    val m = ColorMatrix(floatArrayOf(
+        0.1914f, -0.4632f, -0.3673f, 0f, 160.47f,
+        0.5202f, -0.6820f, -0.6743f, 0f, 222.81f,
+        0.6474f, -0.8464f, -0.6799f, 0f, 241.55f,
+        0f, 0f, 0f, 1f, 0f,
+    ))
+    m.postConcat(ColorMatrix().apply { setSaturation(0.3f) })
+    ColorMatrixColorFilter(m)
 }
 
 /**
@@ -136,18 +143,27 @@ private class EsriImagery : org.osmdroid.tileprovider.tilesource.OnlineTileSourc
             org.osmdroid.util.MapTileIndex.getY(pMapTileIndex) + "/" + org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
 }
 private val SatelliteTiles by lazy { EsriImagery() }
-/** Street and place names over the imagery: CARTO's light-on-dark label layer at @2x (sharp at any size). */
-private val SatelliteLabels by lazy { cartoSource("CartoDarkLabels2x", "dark_only_labels") }
+/** Street and place names over the imagery: Esri's free reference layer (white text, dark halo). */
+private class EsriReference : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
+    "EsriWorldPlaces", 0, 19, 256, "",
+    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/"),
+    "Labels © Esri",
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String =
+        baseUrl + org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex) + "/" +
+            org.osmdroid.util.MapTileIndex.getY(pMapTileIndex) + "/" + org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
+}
+private val SatelliteLabels by lazy { EsriReference() }
 /** Imagery is bright; dim it at night so it doesn't glare. */
 private val SatelliteNight by lazy {
     ColorMatrixColorFilter(ColorMatrix().apply { setScale(0.55f, 0.58f, 0.62f, 1f) })
 }
 
 /**
- * Map size (owner, 2026-11-09: Porsche's map reads better). osmdroid already draws a 512 px tile at
- * the size of a 256 px one, so 1.0 = the old map's text size (now sharp); 2.0 ≈ Porsche's.
+ * Map size (owner, 2026-11-09: Porsche's map reads better): tile scale on top of the screen density.
+ * OSM tiles are 256 px, so bigger is softer; L is the readability/sharpness compromise.
  */
-private enum class MapSize(val scale: Float, val short: String) { Large(2.0f, "L"), Medium(1.5f, "M"), Small(1.0f, "S") }
+private enum class MapSize(val scale: Float, val short: String) { Large(1.6f, "L"), Medium(1.3f, "M"), Small(1.0f, "S") }
 
 /** What the map knows about the car's position, shared with the start-up sequence. */
 @Stable
@@ -481,7 +497,8 @@ fun MapArea(
                     when {
                         satellite && c.isNight -> SatelliteNight
                         satellite -> null
-                        else -> null
+                        c.isNight -> NightTint
+                        else -> DayFilter
                     },
                 )
                 it.invalidate()
@@ -554,8 +571,8 @@ fun MapArea(
         RouteCard(c, Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 28.dp))
 
         BasicText(
-            if (satellite) "Imagery © Esri, Maxar, Earthstar Geographics · © OpenStreetMap contributors © CARTO"
-            else "© OpenStreetMap contributors © CARTO",
+            if (satellite) "Imagery and labels © Esri, Maxar, Earthstar Geographics"
+            else "© OpenStreetMap contributors",
             Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp)
                 .background(c.overlay).padding(horizontal = 6.dp, vertical = 2.dp),
             style = Filament.text(10.sp, 400, c.textFaint),
