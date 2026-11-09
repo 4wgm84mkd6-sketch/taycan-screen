@@ -87,3 +87,12 @@ I work entirely from my iPhone. You can't reach the box directly, so:
 - 2026-11-08: Owner found and enabled the box's car-GPS (CarPlay) setting. To verify next drive: map GPS label shows a fix and the map follows the car; [map] Fix lines in the log name the provider.
 - 2026-11-08: Pinch confirmed impossible: all 30 logged map gestures had 1 finger (the car/CarPlay passes a single touch point). Build 135: one-finger zoom (double-tap and slide: down = in, up = out; plain double-tap = zoom in), +/− kept.
 - 2026-11-08: Owner: map doesn't orient to the car's direction (with the car-GPS setting on). Build 136: direction from GPS bearing if present, else from the bearing between fixes ≥ 6 m apart; "moving" from GPS speed or OBD speed (> 5 km/h); computed bearing also fed to the arrow; log shows bearing source and car speed. Box tab: full list colour-coded (orange REMOVE/DISABLE = approved and still to do, green KEEP = needed/kept).
+- 2026-11-09: Owner's design "Taycan HUD — Filament" (https://claude.ai/artifact/YJuGszWriE3gprMQmWfsDN; Saira + JetBrains Mono; night accent #3EE6FF, mode accents Range #45FFA6 / Sport #FFA53D / Sport Plus #FF3B5C; power arc −400…+270 kW; 20-segment battery; ColorMatrix map tints in MapStyle). Review sent (stale-data rule, speed hero, 13 px labels, night map minor streets, start-up length, missing tokens.json / keyboard / alerts). Owner picked these behaviours to build:
+  1. Start-up becomes the Drive screen: start-up rings fly to their spots and become the battery ring, power arc and map reticle.
+  2. Reticle lock-on: segmented arcs snap into place as each REAL check completes (car link → GPS → Spotify); never longer than the real connect time.
+  3. Real readings count up: HV voltage, pack temperature, 12 V tick in to live values.
+  4. Map acquisition: one scan-line wipe reveals tiles; a thin ring locks onto the car with heading line and live coordinates micro-label.
+  5. Arming: first P→D shift sweeps the power arc full range once and settles at 0; accent pulses once; then quiet.
+  6. Phone detection: micro-label "DRIVER · KALOA" / "+1 PASSENGER" and load that person's EQ (feasible only for phones paired/connected to the box over Bluetooth).
+  7. Charging theater: when parked and charging, current lines flow into the battery ring at a speed scaled to real kW.
+  Plan: A) Filament foundation (fonts, tokens, Drive panel, power arc, battery, dock, map tint, day theme); B) start-up sequence (1–4); C) arming + charging theater (5, 7); D) driver detection (6).
