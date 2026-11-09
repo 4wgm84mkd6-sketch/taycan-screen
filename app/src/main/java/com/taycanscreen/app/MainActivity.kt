@@ -230,8 +230,14 @@ class MainActivity : ComponentActivity() {
         AppLog.info("app", "Configuration changed in place: mcc ${newConfig.mcc} mnc ${newConfig.mnc} uiMode ${newConfig.uiMode} font ${newConfig.fontScale}")
     }
 
+    override fun onPause() {
+        super.onPause()
+        com.taycanscreen.app.log.Screenshots.attach(null)
+    }
+
     override fun onResume() {
         super.onResume()
+        com.taycanscreen.app.log.Screenshots.attach(this)
         updates.onResume()
         refreshLocation()
         if (fullScreen.value) setFullScreen(true)

@@ -49,6 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
@@ -520,9 +522,22 @@ fun MapArea(
             }
         }
         val time = remember(clock) { LocalTime.now().format(DateTimeFormatter.ofPattern("h:mm")) }
+        // Press and hold the clock: screenshot for the log.
         Row(
             Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 16.dp).height(56.dp)
-                .background(c.overlay, Filament.CutS).insetLine(c.border).padding(horizontal = 18.dp),
+                .background(c.overlay, Filament.CutS).insetLine(c.border)
+                .pointerInput(Unit) {
+                    detectTapGestures(onLongPress = {
+                        com.taycanscreen.app.log.Screenshots.capture("owner") { ok ->
+                            android.widget.Toast.makeText(
+                                context,
+                                if (ok) "Screenshot saved. It goes with your next \"Send log to Claude\"." else "Couldn't take a screenshot",
+                                android.widget.Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    })
+                }
+                .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {

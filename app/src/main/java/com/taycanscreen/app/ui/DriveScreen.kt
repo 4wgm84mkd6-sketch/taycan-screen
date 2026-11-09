@@ -242,6 +242,24 @@ private fun DriveContent(
         }
     }
 
+    // Screenshots for the log: after the start-up, every 10 minutes, a new route, the charging view.
+    LaunchedEffect(Unit) {
+        while (Boot.handoffAt.value == 0L) delay(250)
+        val wait = Boot.handoffAt.value + 2_500 - SystemClock.elapsedRealtime()
+        if (wait > 0) delay(wait)
+        com.taycanscreen.app.log.Screenshots.capture("start-up")
+        while (true) {
+            delay(10 * 60_000L)
+            com.taycanscreen.app.log.Screenshots.capture("drive")
+        }
+    }
+    val routeId = com.taycanscreen.app.nav.Nav.active.collectAsState().value?.id
+    LaunchedEffect(routeId) {
+        if (routeId == null) return@LaunchedEffect
+        delay(3_000)
+        com.taycanscreen.app.log.Screenshots.capture("route")
+    }
+
     // Gauge sweep: only on the first shift into D after start-up.
     var sweepAt by remember { mutableLongStateOf(0L) }
     val lastGear = remember { arrayOfNulls<String>(1) }
@@ -273,6 +291,7 @@ private fun DriveContent(
             if (!charging && votes >= 2) {
                 charging = true
                 AppLog.info("drive", "Charging view on (%.1f kW in)".format(v.kw?.x ?: 0.0))
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ com.taycanscreen.app.log.Screenshots.capture("charging") }, 3_000)
             }
         } else {
             votes = if (votes > 0) -1 else votes - 1

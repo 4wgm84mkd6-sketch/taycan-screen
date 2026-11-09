@@ -23,6 +23,7 @@ import java.util.zip.GZIPOutputStream
 object LogUploader {
     private const val TAG = "log"
     private const val SESSIONS_TO_SEND = 3
+    private const val SHOTS_TO_SEND = 8
     /** Upload in pieces so a weak mobile signal only has to carry a small request at a time. */
     private const val PART_BYTES = 256 * 1024
     private const val TRIES_PER_PART = 4
@@ -66,8 +67,23 @@ object LogUploader {
             }
             sent++
         }
-        AppLog.info(TAG, "Uploaded $sent log file(s) to ${BuildConfig.LOG_REPO}/$folder")
-        "Sent $sent log file(s). Tell Claude \"sent\"."
+        // Screenshots of the Drive screen (Screenshots.kt), newest first, not sent before.
+        var shots = 0
+        for (f in Screenshots.unsent(context).take(SHOTS_TO_SEND)) {
+            val path = "$folder/screenshots/${f.name}"
+            var result: String? = null
+            for (attempt in 1..TRIES_PER_PART) {
+                result = putFile(token, path, f.readBytes(), "Screenshot ${f.name} from build ${BuildConfig.VERSION_CODE}")
+                if (result == null) break
+                AppLog.warn(TAG, "Upload of $path failed (try $attempt): $result")
+                if (attempt < TRIES_PER_PART) kotlinx.coroutines.delay(3_000L * attempt)
+            }
+            if (result != null) break // logs are up; screenshots try again next time
+            Screenshots.markSent(f)
+            shots++
+        }
+        AppLog.info(TAG, "Uploaded $sent log file(s) and $shots screenshot(s) to ${BuildConfig.LOG_REPO}/$folder")
+        "Sent $sent log file(s)" + (if (shots > 0) " and $shots screenshot(s)" else "") + ". Tell Claude \"sent\"."
     }
 
     private fun gzip(f: File): ByteArray {
