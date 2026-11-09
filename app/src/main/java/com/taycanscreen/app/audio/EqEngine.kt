@@ -96,22 +96,63 @@ object EqEngine {
             addAction(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION)
         }
         val receiver = object : BroadcastReceiver() {
-            override fun onReceive(c: Context, i: Intent) {
-                val session = i.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, AudioEffect.ERROR)
-                val pkg = i.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME) ?: "?"
-                if (session == AudioEffect.ERROR) return
-                if (i.action == AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION) {
-                    AppLog.info(TAG, "Audio session $session opened by $pkg")
-                    attach(session, pkg)
-                } else {
-                    AppLog.info(TAG, "Audio session $session closed by $pkg")
-                    detach(session)
-                }
-            }
+            override fun onReceive(c: Context, i: Intent) = onSessionBroadcast(i)
         }
         if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
         else app.registerReceiver(receiver, filter)
         AppLog.info(TAG, "Listening for players' audio sessions")
+        reattachRemembered()
+    }
+
+    /**
+     * A player announced (or closed) its audio session. Comes from the receiver registered above and
+     * from [AudioSessionReceiver] in the manifest, which also catches announcements made while our
+     * app wasn't running yet (e.g. Spotify resuming as the car powers up).
+     */
+    fun onSessionBroadcast(i: Intent) {
+        val session = i.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, AudioEffect.ERROR)
+        val pkg = i.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME) ?: "?"
+        if (session == AudioEffect.ERROR) return
+        if (i.action == AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION) {
+            if (effects.containsKey(session)) return // same announcement through both receivers
+            AppLog.info(TAG, "Audio session $session opened by $pkg")
+            attach(session, pkg)
+        } else if (i.action == AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION) {
+            if (!effects.containsKey(session)) return
+            AppLog.info(TAG, "Audio session $session closed by $pkg")
+            detach(session)
+            if (session == rememberedSession()) forgetSession()
+        }
+    }
+
+    // Spotify's session number stays the same until Spotify or the box restarts, so remember it:
+    // after one of our updates (which restarts our app and drops the EQ) we attach again by ourselves.
+    private fun bootCount(): Int =
+        runCatching { android.provider.Settings.Global.getInt(app.contentResolver, android.provider.Settings.Global.BOOT_COUNT) }.getOrDefault(-1)
+
+    private fun rememberedSession(): Int = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("spotify_session", 0)
+
+    private fun rememberSession(session: Int) {
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt("spotify_session", session).putInt("spotify_session_boot", bootCount()).apply()
+    }
+
+    private fun forgetSession() {
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("spotify_session").apply()
+    }
+
+    private fun reattachRemembered() {
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val session = prefs.getInt("spotify_session", 0)
+        val boot = prefs.getInt("spotify_session_boot", -2)
+        if (session <= 0) return
+        if (boot != bootCount() || boot == -1) {
+            AppLog.info(TAG, "Box restarted since Spotify's audio session $session was seen; waiting for a new one")
+            forgetSession()
+            return
+        }
+        AppLog.info(TAG, "Re-attaching to Spotify's audio session $session (remembered from this box start)")
+        attach(session, "com.spotify.music")
     }
 
     /** Fallback: try the global output mix (session 0) so the EQ works even without announcements. */
@@ -146,6 +187,7 @@ object EqEngine {
             apply()
             dp.enabled = true
             AppLog.info(TAG, "Equalizer attached to session $session ($owner)")
+            if (owner == "com.spotify.music" && session > 0) rememberSession(session)
             _status.value = Status(if (session == 0) "All audio" else ownerLabel(owner), "Equalizer active")
         } catch (e: Exception) {
             AppLog.warn(TAG, "Couldn't attach to session $session ($owner): ${e.javaClass.simpleName}: ${e.message}")
@@ -225,6 +267,11 @@ object EqEngine {
             val getSession = android.media.AudioPlaybackConfiguration::class.java.getMethod("getSessionId")
             val getUid = android.media.AudioPlaybackConfiguration::class.java.getMethod("getClientUid")
             val spotifyUid = runCatching { context.packageManager.getApplicationInfo("com.spotify.music", 0).uid }.getOrNull()
+            if (!scanReported && configs.isNotEmpty()) {
+                scanReported = true
+                val seen = configs.joinToString { "session ${getSession.invoke(it)} uid ${getUid.invoke(it)}" }
+                AppLog.info(TAG, "Playback list: $seen (Spotify uid $spotifyUid; Android hides other apps' sessions as 0 / -1)")
+            }
             configs.forEach { cfg ->
                 val session = getSession.invoke(cfg) as Int
                 val uid = getUid.invoke(cfg) as Int
@@ -241,6 +288,7 @@ object EqEngine {
         }
     }
     private var scanFailedLogged = false
+    private var scanReported = false
 
     private fun apply() {
         if (effects.isEmpty()) return

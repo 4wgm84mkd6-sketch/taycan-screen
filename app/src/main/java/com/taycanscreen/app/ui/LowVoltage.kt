@@ -102,10 +102,10 @@ private fun SocRing(soc: V?, c: DriveColors) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.Bottom) {
                 BasicText(
-                    soc?.x?.roundToInt()?.toString() ?: NO_DATA,
+                    soc?.x?.roundToInt()?.toString() ?: NO_DATA, Modifier.alignByBaseline(),
                     style = Filament.num(84.sp, 500, c.text, if (c.glow > 0f) col.copy(alpha = 0.45f) else null),
                 )
-                BasicText("%", Modifier.padding(bottom = 10.dp, start = 4.dp), style = Filament.text(30.sp, 400, c.textDim))
+                BasicText("%", Modifier.alignByBaseline().padding(start = 4.dp), style = Filament.text(30.sp, 400, c.textDim))
             }
             BasicText("STATE OF CHARGE", style = Filament.label(13.sp, col, 0.18f))
         }
@@ -118,14 +118,14 @@ private fun VoltageScale(lv: LowVoltageValues, c: DriveColors) {
     val v = lv.volts ?: lv.adapterVolts
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
-            BasicText("VOLTAGE", Modifier.padding(bottom = 8.dp), style = Filament.label(13.sp, c.textFaint, 0.18f))
+            BasicText("VOLTAGE", Modifier.alignByBaseline(), style = Filament.label(13.sp, c.textFaint, 0.18f))
             Spacer(Modifier.weight(1f))
             BasicText(
                 v?.x?.let { "%.2f".format(it) } ?: NO_DATA,
-                Modifier.alpha(if (v?.dim == true) 0.45f else 1f),
+                Modifier.alignByBaseline().alpha(if (v?.dim == true) 0.45f else 1f),
                 style = Filament.num(44.sp, 600, c.text),
             )
-            BasicText(" V", Modifier.padding(bottom = 6.dp), style = Filament.text(20.sp, 400, c.textDim))
+            BasicText(" V", Modifier.alignByBaseline(), style = Filament.text(20.sp, 400, c.textDim))
         }
         Canvas(Modifier.fillMaxWidth().height(34.dp)) {
             val u = density
@@ -164,8 +164,8 @@ private fun HealthTile(label: String, value: V?, fmt: String, unit: String, c: D
     ) {
         BasicText(label, style = Filament.label(13.sp, c.textFaint, 0.14f))
         Row(Modifier.alpha(if (value?.dim == true) 0.45f else 1f), verticalAlignment = Alignment.Bottom) {
-            BasicText(value?.x?.let { fmt.format(it) } ?: NO_DATA, style = Filament.num(32.sp, 600, c.text))
-            BasicText(" $unit", Modifier.padding(bottom = 4.dp), style = Filament.text(16.sp, 400, c.textDim))
+            BasicText(value?.x?.let { fmt.format(it) } ?: NO_DATA, Modifier.alignByBaseline(), style = Filament.num(32.sp, 600, c.text))
+            BasicText(" $unit", Modifier.alignByBaseline(), style = Filament.text(16.sp, 400, c.textDim))
         }
     }
 }

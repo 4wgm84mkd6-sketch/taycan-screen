@@ -60,8 +60,15 @@ fun AudioPanel(c: DriveColors, onClose: () -> Unit, modifier: Modifier = Modifie
                 Text("Audio", color = c.text, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
                 Text(
                     status.attachedTo?.let { "Equalizer on $it" } ?: status.detail,
-                    color = if (status.attachedTo != null) c.textDim else c.warn, fontSize = 14.sp,
+                    color = if (status.attachedTo == "Spotify") c.textDim else c.warn, fontSize = 14.sp,
                 )
+                if (status.attachedTo != "Spotify") {
+                    // Spotify only hands its audio over when its Equalizer menu is opened (or when it announces it).
+                    Text(
+                        "To put the EQ on Spotify: in Spotify, open Settings → Playback → Equalizer once, then come back.",
+                        color = c.textDim, fontSize = 13.sp,
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text("Speed-adaptive EQ", color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)

@@ -97,12 +97,19 @@ fun NowPlayingCard(c: DriveColors, onOpenMusic: () -> Unit) {
  * artists open to their songs/episodes) and Search (Web API).
  */
 @Composable
-fun MusicPanel(c: DriveColors, onClose: () -> Unit, onOpenSpotifyApp: () -> Unit, modifier: Modifier = Modifier) {
+fun MusicPanel(
+    c: DriveColors,
+    onClose: () -> Unit,
+    onOpenSpotifyApp: () -> Unit,
+    modifier: Modifier = Modifier,
+    onViewChange: (String) -> Unit = {},
+) {
     val status by SpotifyController.status.collectAsState()
     val tokenVersion by SpotifyWeb.tokenVersion.collectAsState()
     val scope = rememberCoroutineScope()
     val stack = remember { mutableStateListOf<Pair<String, List<MusicItem>>>() }
     var view by remember { mutableStateOf("now") } // now | browse
+    LaunchedEffect(view) { onViewChange(view) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }

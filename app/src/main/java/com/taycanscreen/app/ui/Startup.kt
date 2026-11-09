@@ -271,13 +271,13 @@ private fun Readout(label: String, value: String, unit: String, c: DriveColors, 
 
 @Composable
 private fun CheckRow(label: String, alpha: Float, status: String?, spin: Float, c: DriveColors) {
-    Row(Modifier.alpha(alpha).height(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.alpha(alpha).height(26.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         BasicText(label, style = Filament.label(16.sp, c.textDim, 0.14f))
         Canvas(Modifier.weight(1f).height(20.dp)) {
             val y = size.height * 0.75f
             drawLine(c.border, Offset(0f, y), Offset(size.width, y), density, pathEffect = PathEffect.dashPathEffect(floatArrayOf(density, 3 * density)))
         }
-        Box(Modifier.width(90.dp).height(20.dp), contentAlignment = Alignment.CenterEnd) {
+        Box(Modifier.width(90.dp).height(26.dp), contentAlignment = Alignment.CenterEnd) {
             if (status == null) {
                 Canvas(Modifier.size(12.dp).rotate(spin)) {
                     val s = 1.5f * density

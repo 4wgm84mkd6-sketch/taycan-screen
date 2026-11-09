@@ -165,6 +165,12 @@ class MainActivity : ComponentActivity() {
         })
         setContent {
             TaycanTheme {
+                // Owner (2026-11-09): all text about 2 pt bigger. The Drive screen sizes its own text
+                // (Filament.bump); this scales the standard screens and the Music/Audio panels.
+                val d = androidx.compose.ui.platform.LocalDensity.current
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, d.fontScale * 1.15f),
+                ) {
                 MainScreen(
                     updates = updates,
                     obd = obd,
@@ -204,6 +210,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                 )
+                }
             }
         }
     }

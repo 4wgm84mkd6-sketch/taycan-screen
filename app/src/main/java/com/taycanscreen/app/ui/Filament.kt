@@ -14,9 +14,11 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import com.taycanscreen.app.R
 
 /**
@@ -46,19 +48,35 @@ object Filament {
     /** "cut-s": the same at 8 px. */
     val CutS = CutCornerShape(topStart = 8.dp, bottomEnd = 8.dp)
 
+    /**
+     * Owner (2026-11-09): all text about 2 pt bigger. Small and mid sizes grow by 3 design px
+     * (13 → 16, 20 → 23), tapering to nothing for the big numerals (the speed stays 132).
+     */
+    fun bump(size: TextUnit): TextUnit {
+        val s = size.value
+        val extra = 3f * ((90f - s) / 60f).coerceIn(0f, 1f)
+        return (s + extra).sp
+    }
+
+    /** Tight line box (Saira's own is 1.57× the size, which clipped numbers in fixed-height rows). */
+    private val Tight = LineHeightStyle(LineHeightStyle.Alignment.Proportional, LineHeightStyle.Trim.Both)
+
     /** Numbers: Saira with tabular figures, so digits don't jump as values change. */
     fun num(size: TextUnit, weight: Int, color: Color, glow: Color? = null) = TextStyle(
-        fontFamily = Saira, fontWeight = FontWeight(weight), fontSize = size, color = color,
+        fontFamily = Saira, fontWeight = FontWeight(weight), fontSize = bump(size), color = color,
         fontFeatureSettings = "tnum", shadow = glow?.let { Shadow(it, blurRadius = 14f) },
+        lineHeight = 1.2.em, lineHeightStyle = Tight,
     )
 
     fun label(size: TextUnit, color: Color, spacing: Float = 0.14f, weight: Int = 400) = TextStyle(
-        fontFamily = Mono, fontWeight = FontWeight(weight), fontSize = size, color = color,
+        fontFamily = Mono, fontWeight = FontWeight(weight), fontSize = bump(size), color = color,
         letterSpacing = spacing.em, fontFeatureSettings = "tnum",
+        lineHeight = 1.2.em, lineHeightStyle = Tight,
     )
 
     fun text(size: TextUnit, weight: Int, color: Color) = TextStyle(
-        fontFamily = Saira, fontWeight = FontWeight(weight), fontSize = size, color = color,
+        fontFamily = Saira, fontWeight = FontWeight(weight), fontSize = bump(size), color = color,
+        lineHeight = 1.2.em, lineHeightStyle = Tight,
     )
 }
 

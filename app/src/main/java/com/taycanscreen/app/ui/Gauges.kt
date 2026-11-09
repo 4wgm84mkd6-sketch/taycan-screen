@@ -209,12 +209,12 @@ fun PowerGauge(
                     Modifier.alpha(if (kw?.dim == true) 0.45f else 1f),
                     verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    BasicText(label, Modifier.padding(bottom = 5.dp), style = Filament.label(13.sp, c.textDim, 0.18f))
+                    BasicText(label, Modifier.alignByBaseline(), style = Filament.label(13.sp, c.textDim, 0.18f))
                     BasicText(
-                        value,
+                        value, Modifier.alignByBaseline(),
                         style = Filament.num(32.sp, 600, color, if (color == c.energyIn && c.glow > 0f) c.energyIn.copy(alpha = 0.5f) else null),
                     )
-                    BasicText("kW", Modifier.padding(bottom = 3.dp), style = Filament.text(18.sp, 400, c.textDim))
+                    BasicText("kW", Modifier.alignByBaseline(), style = Filament.text(18.sp, 400, c.textDim))
                 }
             }
         }
@@ -225,16 +225,16 @@ fun PowerGauge(
 @Composable
 fun BatteryBlock(soc: V?, rangeMi: V?, packC: V?, lowVoltage: LowVoltageValues, c: DriveColors, onOpen12V: () -> Unit, modifier: Modifier = Modifier) {
     // The whole block is the tap target for the 12 V gauge (the 12V line alone is too small to hit while driving).
-    Column(modifier.fillMaxWidth().height(78.dp).clickable(onClick = onOpen12V), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.Bottom) {
+    Column(modifier.fillMaxWidth().clickable(onClick = onOpen12V), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Row(Modifier.alpha(if (soc?.dim == true) 0.45f else 1f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(soc?.x?.roundToInt()?.toString() ?: NO_DATA, style = Filament.num(34.sp, 600, c.text))
-                BasicText("%", Modifier.padding(bottom = 3.dp), style = Filament.text(18.sp, 400, c.textDim))
+                BasicText(soc?.x?.roundToInt()?.toString() ?: NO_DATA, Modifier.alignByBaseline(), style = Filament.num(34.sp, 600, c.text))
+                BasicText("%", Modifier.alignByBaseline(), style = Filament.text(18.sp, 400, c.textDim))
             }
             Spacer(Modifier.weight(1f))
             Row(Modifier.alpha(if (rangeMi?.dim == true) 0.45f else 1f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(rangeMi?.x?.roundToInt()?.toString() ?: NO_DATA, style = Filament.num(34.sp, 600, c.text))
-                BasicText("mi", Modifier.padding(bottom = 3.dp), style = Filament.text(18.sp, 400, c.textDim))
+                BasicText(rangeMi?.x?.roundToInt()?.toString() ?: NO_DATA, Modifier.alignByBaseline(), style = Filament.num(34.sp, 600, c.text))
+                BasicText("mi", Modifier.alignByBaseline(), style = Filament.text(18.sp, 400, c.textDim))
             }
         }
         val pct = soc?.x ?: 0.0
@@ -340,10 +340,10 @@ fun ChargingBlock(soc: V?, chargeKw: Double, rangeMi: V?, packC: V?, c: DriveCol
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     BasicText(
-                        soc?.x?.roundToInt()?.toString() ?: NO_DATA,
+                        soc?.x?.roundToInt()?.toString() ?: NO_DATA, Modifier.alignByBaseline(),
                         style = Filament.num(84.sp, 500, c.text, if (c.glow > 0f) c.energyIn.copy(alpha = 0.45f) else null),
                     )
-                    BasicText("%", Modifier.padding(bottom = 10.dp), style = Filament.text(30.sp, 400, c.textDim))
+                    BasicText("%", Modifier.alignByBaseline(), style = Filament.text(30.sp, 400, c.textDim))
                 }
                 BasicText("CHARGING", style = Filament.label(13.sp, c.energyIn, 0.22f))
             }
@@ -361,8 +361,8 @@ private fun Stat(label: String, value: String, unit: String, color: Color, c: Dr
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         BasicText(label, style = Filament.label(13.sp, c.textFaint, 0.14f))
         Row(verticalAlignment = Alignment.Bottom) {
-            BasicText(value, style = Filament.num(28.sp, 600, color))
-            BasicText(" $unit", Modifier.padding(bottom = 3.dp), style = Filament.text(16.sp, 400, c.textDim))
+            BasicText(value, Modifier.alignByBaseline(), style = Filament.num(28.sp, 600, color))
+            BasicText(" $unit", Modifier.alignByBaseline(), style = Filament.text(16.sp, 400, c.textDim))
         }
     }
 }

@@ -204,6 +204,8 @@ private fun DriveContent(
 
     // Which panel covers the map: null (map), "music" or "audio".
     var panel by remember { mutableStateOf<String?>(null) }
+    // Music panel's own view: "now" (big Now playing) or "browse".
+    var musicView by remember { mutableStateOf("now") }
     val requested by UiEvents.openPanel.collectAsState()
     LaunchedEffect(requested) {
         requested?.let { panel = it; UiEvents.openPanel.value = null }
@@ -287,8 +289,8 @@ private fun DriveContent(
                     Modifier.width(448.dp).fillMaxHeight().background(c.panel)
                         .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
                         .onGloballyPositioned { targets.panel = it.boundsInRoot() }
-                        .padding(start = 28.dp, end = 28.dp, top = 18.dp, bottom = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                        .padding(start = 28.dp, end = 28.dp, top = 12.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
                         GearChips(v.gear, c, sweepT)
@@ -322,12 +324,15 @@ private fun DriveContent(
                         })
                     }
                     Spacer(Modifier.weight(1f))
-                    FilamentNowPlaying(
-                        c, now,
-                        onOpenMusic = { panel = "music" },
-                        modifier = Modifier.onGloballyPositioned { targets.nowPlaying = it.boundsInRoot() },
-                        pulseT = rememberSince(targets.nowPlayingPulseAt, 1.0f),
-                    )
+                    // The big Now playing view over the map makes the mini card redundant (owner, 2026-11-09).
+                    if (!(panel == "music" && musicView == "now")) {
+                        FilamentNowPlaying(
+                            c, now,
+                            onOpenMusic = { panel = "music" },
+                            modifier = Modifier.onGloballyPositioned { targets.nowPlaying = it.boundsInRoot() },
+                            pulseT = rememberSince(targets.nowPlayingPulseAt, 1.0f),
+                        )
+                    }
                 }
                 // The map keeps running underneath while Music is open, so it's current when you close it.
                 Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -340,6 +345,7 @@ private fun DriveContent(
                                 onClose = { panel = null },
                                 onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
                                 modifier = Modifier.fillMaxSize(),
+                                onViewChange = { musicView = it },
                             )
                             "audio" -> AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
                         }
@@ -499,7 +505,13 @@ private fun Dock(
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
             DockButton(FIcons.Navigate, if (panel == null) "Navigate (opens Maps or Waze)" else "Back to the map", panel == null, c, onClick = onNavigate)
             DockButton(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
-            DockButton(FIcons.Eq, "Equalizer", panel == "audio", c, onClick = onOpenAudio)
+            // Status light: cyan when the EQ is on Spotify's audio, amber when it isn't (see the Audio panel).
+            val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()
+            DockButton(
+                FIcons.Eq, "Equalizer", panel == "audio", c,
+                light = if (eq.attachedTo == "Spotify") c.accent else c.warn,
+                onClick = onOpenAudio,
+            )
             val themeIcon = when (themeMode) {
                 ThemeMode.Auto -> FIcons.Auto
                 ThemeMode.Day -> FIcons.Sun
@@ -528,6 +540,7 @@ private fun DockButton(
     c: DriveColors,
     iconSize: Int = 32,
     label: String? = null,
+    light: Color? = null,
     onClick: () -> Unit,
 ) {
     Box(
@@ -542,6 +555,9 @@ private fun DockButton(
                     .drawBehind { if (c.glow > 0f) drawRect(c.accent.copy(alpha = 0.35f), Offset(-4 * density, -2 * density), size.copy(size.width + 8 * density, size.height + 6 * density)) }
                     .background(c.accent),
             )
+        }
+        if (light != null) {
+            Box(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 22.dp)) { Diamond(light, 11.dp, glow = c.glow > 0f) }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, contentDescription = description, tint = if (active) c.accent else c.textDim, modifier = Modifier.size(iconSize.dp))
