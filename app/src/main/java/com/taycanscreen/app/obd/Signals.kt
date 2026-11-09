@@ -62,6 +62,7 @@ object Taycan {
     /** Found by the owner-approved discovery test (2026-11-08), not in OBDb: gear selector. */
     private val ENG_GEAR = ObdCommand("7E0", "7E8", "0884", extendedSession = false)
     private val ENG_AAT = ObdCommand("7E0", "7E8", "1004", extendedSession = false)
+    private val ENG_VSS_DIR = ObdCommand("7E0", "7E8", "115B", extendedSession = false)
     private val GW_RANGE = ObdCommand("710", "77A", "2AB6", extendedSession = false, flowControl = true)
     private val GW_12V_CAP = ObdCommand("710", "77A", "2A06", extendedSession = false, flowControl = true)
     private val GW_12V_VOLT = ObdCommand("710", "77A", "2A07", extendedSession = false, flowControl = true)
@@ -76,6 +77,13 @@ object Taycan {
         len = 16, div = 100.0, unit = "%")
     val SPEED = Signal("TAYCAN_VSS", "Vehicle speed", ENG_VSS,
         len = 8, nullMax = 255.0, unit = "km/h")
+    /**
+     * OBDb "Vehicle speed (directional)": 1/64 km/h resolution (F40D is whole km/h only), negative in
+     * reverse. Shown on the Drive screen and polled twice per cycle so the number keeps up.
+     */
+    val SPEED_DIR = Signal("TAYCAN_VSS_DIR", "Vehicle speed (directional)", ENG_VSS_DIR,
+        len = 16, div = 64.0, signed = true, unit = "km/h")
+
     val HV_VOLTAGE = Signal("TAYCAN_HVBAT_VOLT", "HV battery voltage", BMS_VOLT,
         len = 16, div = 10.0, unit = "V")
     /** OBDb's 2025 recordings show 1801 answering 0 while 1818 gives the real pack voltage. */
@@ -123,8 +131,19 @@ object Taycan {
 
     /** Polled in this order; grouped by module so the header changes as little as possible. */
     val POLLED = listOf(
-        SOC_DISPLAY, SPEED, GEAR, AMBIENT,
+        SPEED_DIR, SOC_DISPLAY, GEAR, SPEED, AMBIENT,
         HV_VOLTAGE, HV_VOLTAGE_1818, HV_CURRENT, PACK_T_MAX, PACK_T_MIN,
+        SPEED_DIR, // again mid-cycle, so speed refreshes about twice as often
         RANGE, LV_VOLTAGE, LV_SOC, LV_CHARGE, LV_CAPACITY, LV_RESISTANCE,
     )
+
+    /** Speed for display (km/h, ≥ 0): directional speed if fresh, else F40D; null if neither is. */
+    fun speedKmh(readings: Map<String, Reading>, now: Long = System.currentTimeMillis()): Double? {
+        for (sig in listOf(SPEED_DIR, SPEED)) {
+            val r = readings[sig.id] ?: continue
+            val v = r.value ?: continue
+            if (now - r.at <= sig.staleMs) return kotlin.math.abs(v)
+        }
+        return null
+    }
 }

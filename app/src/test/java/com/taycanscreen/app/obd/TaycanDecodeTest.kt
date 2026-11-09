@@ -48,6 +48,13 @@ class TaycanDecodeTest {
         check(Taycan.LV_VOLTAGE, "77A05622A0724A1", 13.377)
     }
 
+    @Test fun speedDirectional() {
+        check(Taycan.SPEED_DIR, "7E80562115B0000", 0.0)          // 2025
+        check(Taycan.SPEED_DIR, "7E80562115B10FF", 67.98438)     // 2025
+        check(Taycan.SPEED_DIR, "7E80562115BFF1D", -3.54688)     // 2025, reverse
+        check(Taycan.SPEED_DIR, "7E80562115B24AC", 146.6875)     // 2024
+    }
+
     @Test fun speed() {
         check(Taycan.SPEED, "7E80462F40D00", 0.0)
         check(Taycan.SPEED, "7E80462F40DB9", 185.0)                 // 2025

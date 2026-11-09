@@ -248,21 +248,38 @@ fun MapArea(
     }
     // Where the car marker is on screen (or would be, while GPS is still searching), for the
     // start-up reticle and the lock-on. Cheap: one projection every 100 ms.
-    LaunchedEffect(mapView) {
+    LaunchedEffect(mapView, locationOverlay) {
         while (true) {
             val w = mapView.width.toFloat()
             val h = mapView.height.toFloat()
             if (w > 0f) {
                 val fix = gps.fix
-                targets.markerInMap = if (fix != null) {
-                    val p = mapView.projection.toPixels(GeoPoint(fix.latitude, fix.longitude), null)
-                    Offset(p.x.toFloat(), p.y.toFloat())
+                val shown = locationOverlay?.shownPoint ?: fix?.let { GeoPoint(it.latitude, it.longitude) }
+                targets.markerInMap = if (shown != null) {
+                    // toPixels is in the map's unrotated space; rotate into screen space (heading-up).
+                    val proj = mapView.projection
+                    val p = proj.toPixels(shown, null)
+                    val q = proj.rotateAndScalePoint(p.x, p.y, null)
+                    Offset(q.x.toFloat(), q.y.toFloat())
                 } else {
                     Offset(w / 2f, h / 2f + if (headingUp.value) h * 0.22f else 0f)
                 }
                 gps.mapOrientation = mapView.mapOrientation
             }
             delay(100)
+        }
+    }
+
+    // Smooth tracking: move the marker and the map every frame (~30 per second) from the predicted position.
+    LaunchedEffect(locationOverlay) {
+        val o = locationOverlay ?: return@LaunchedEffect
+        var last = 0L
+        while (true) {
+            withFrameNanos { }
+            val now = SystemClock.elapsedRealtime()
+            if (now - last < 30) continue
+            last = now
+            o.tick(now)
         }
     }
 
@@ -722,11 +739,17 @@ private fun MapButton(icon: ImageVector, label: String, tint: Color, onClick: ()
 
 /** The car's speed from OBD (km/h), if fresh. */
 private fun carSpeedKmh(): Double? {
-    val r = com.taycanscreen.app.obd.ObdEngine.readings.value[Taycan.SPEED.id] ?: return null
-    return r.value?.takeIf { System.currentTimeMillis() - r.at < Taycan.SPEED.staleMs }
+    return Taycan.speedKmh(com.taycanscreen.app.obd.ObdEngine.readings.value)
 }
 
-/** Follows the car and, in heading-up mode, turns the map so the direction of travel points up. */
+/**
+ * Follows the car and, in heading-up mode, turns the map so the direction of travel points up.
+ *
+ * Smooth tracking: osmdroid's own follow animates the map to each fix over ~1 s, so the map was always
+ * a second or more behind (plus the fix's own delay through CarPlay). Instead, [tick] runs every frame:
+ * it predicts where the car is now from the last fix, its age, the direction of travel and the car's
+ * own speed (OBD), eases the marker towards that, and moves/turns the map with it.
+ */
 private class CarLocationOverlay(
     provider: GpsMyLocationProvider,
     private val map: MapView,
@@ -736,12 +759,35 @@ private class CarLocationOverlay(
 ) : MyLocationNewOverlay(provider, map) {
     private var lastLogAt = 0L
     private var lastPoint: Location? = null
-    private var lastBearing: Float? = null
+    @Volatile private var lastBearing: Float? = null
     private var lastBearingSource = ""
+    @Volatile private var lastGpsAt = 0L
+
+    // Main-thread state for the smoothed position.
+    private var fix: Location? = null
+    private var fixAtMs = 0L
+    private var shownLat = Double.NaN
+    private var shownLon = Double.NaN
+    private var shownBearing: Float? = null
+    private var lastTickMs = 0L
+    private var lastCenterLat = Double.NaN
+    private var lastCenterLon = Double.NaN
+    private val drawPx = android.graphics.Point()
+
+    /** Where the marker is drawn (smoothed, predicted), or null before the first fix. */
+    val shownPoint: GeoPoint? get() = if (shownLat.isNaN()) null else GeoPoint(shownLat, shownLon)
 
     override fun onLocationChanged(location: Location?, source: IMyLocationProvider?) {
         if (location == null) {
             super.onLocationChanged(location, source)
+            return
+        }
+        val nowEl = SystemClock.elapsedRealtime()
+        // The car's GPS comes in as "gps". While it's current, skip the coarser fused/network fixes,
+        // which arrive interleaved and pulled the marker back and forth.
+        if (location.provider == android.location.LocationManager.GPS_PROVIDER) {
+            lastGpsAt = nowEl
+        } else if (nowEl - lastGpsAt < 3_000) {
             return
         }
         // Direction of travel. The car's GPS (passed through the box) may come without a bearing or
@@ -758,28 +804,122 @@ private class CarLocationOverlay(
         }
         if (prev == null || prev.distanceTo(location) >= 6f || !moving) lastPoint = Location(location)
         if (bearing != null) lastBearing = bearing
-        // Let the arrow point the right way too (osmdroid draws it from the location's bearing).
         lastBearing?.let { location.bearing = it }
         super.onLocationChanged(location, source)
         Sun.latitude = location.latitude
         Sun.longitude = location.longitude
+        // How old the fix already is when it reaches us (the CarPlay relay adds delay).
+        val ageMs = ((SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L)
+            .takeIf { location.elapsedRealtimeNanos > 0 && it in 0..3_000 } ?: 0L
         val status = "GPS ±%d m · %s".format(location.accuracy.roundToInt(), location.provider ?: "?")
         val copy = Location(location)
         val heading = lastBearing
-        map.post { onFix(status, copy, heading) }
+        map.post {
+            fix = copy
+            fixAtMs = nowEl - ageMs
+            onFix(status, copy, heading)
+        }
+        // Every 10 s while moving (30 s parked): GPS speed vs the car's speed, fix age, bearing source.
         val now = System.currentTimeMillis()
-        if (now - lastLogAt > 30_000) {
+        if (now - lastLogAt > (if (moving) 10_000 else 30_000)) {
             lastLogAt = now
             AppLog.info(
                 "map",
-                "Fix from ${location.provider}: ±${location.accuracy.roundToInt()} m, " +
-                    "${"%.1f".format(location.speed * 2.23694)} mph (car ${obd?.let { "%.0f".format(it * 0.621371) } ?: "?"} mph), " +
+                "Fix from ${location.provider}: ±${location.accuracy.roundToInt()} m, age $ageMs ms, " +
+                    "GPS ${if (location.hasSpeed()) "%.1f".format(location.speed * 2.23694) else "?"} mph vs car " +
+                    "${obd?.let { "%.1f".format(it * 0.621371) } ?: "?"} mph, " +
                     "bearing ${lastBearing?.roundToInt() ?: -1} from ${lastBearingSource.ifBlank { "none yet" }}",
             )
         }
-        // Keep the last orientation when stopped.
-        if (headingUp() && moving && bearing != null) {
-            map.post { map.mapOrientation = -bearing }
+    }
+
+    /** osmdroid would animate the map to every fix over ~1 s; [tick] moves it every frame instead. */
+    override fun setLocation(location: Location?) {
+        val following = mIsFollowing
+        mIsFollowing = false
+        super.setLocation(location)
+        mIsFollowing = following
+    }
+
+    /** Called every frame on the main thread: predict, ease, and move/turn the map. */
+    fun tick(nowMs: Long) {
+        val f = fix ?: return
+        val dt = if (lastTickMs == 0L) 0.033 else ((nowMs - lastTickMs) / 1000.0).coerceIn(0.0, 0.25)
+        lastTickMs = nowMs
+        val b = lastBearing
+        val speedMps = carSpeedKmh()?.div(3.6) ?: if (f.hasSpeed()) f.speed.toDouble() else 0.0
+        var pLat = f.latitude
+        var pLon = f.longitude
+        if (b != null && speedMps > 1.0) {
+            // Ahead by the fix's age plus the easing delay, so at steady speed the marker sits on the car.
+            val t = ((nowMs - fixAtMs) / 1000.0 + EASE_S).coerceIn(0.0, 2.0 + EASE_S)
+            val d = speedMps * t
+            val rad = Math.toRadians(b.toDouble())
+            pLat += d * kotlin.math.cos(rad) / 111_320.0
+            pLon += d * kotlin.math.sin(rad) / (111_320.0 * kotlin.math.cos(Math.toRadians(pLat)))
+        }
+        val jump = shownLat.isNaN() || metres(shownLat, shownLon, pLat, pLon) > 80.0
+        if (jump) {
+            shownLat = pLat
+            shownLon = pLon
+        } else {
+            val k = 1.0 - kotlin.math.exp(-dt / EASE_S)
+            shownLat += (pLat - shownLat) * k
+            shownLon += (pLon - shownLon) * k
+        }
+        if (b != null) {
+            val cur = shownBearing ?: b
+            val diff = ((b - cur + 540f) % 360f) - 180f
+            shownBearing = (cur + diff * (1f - kotlin.math.exp(-dt / 0.35).toFloat()) + 360f) % 360f
+        }
+        var changed = false
+        if (mIsFollowing && (lastCenterLat.isNaN() || metres(lastCenterLat, lastCenterLon, shownLat, shownLon) > 0.05)) {
+            map.controller.setCenter(GeoPoint(shownLat, shownLon))
+            lastCenterLat = shownLat
+            lastCenterLon = shownLon
+            changed = true
+        }
+        val sb = shownBearing
+        if (headingUp() && sb != null && abs(((-sb - map.mapOrientation + 540f) % 360f) - 180f) > 0.05f) {
+            map.mapOrientation = -sb
+            changed = true
+        }
+        if (!changed && !mIsFollowing && speedMps > 1.0) changed = true // marker still moving on a panned map
+        if (changed) map.invalidate()
+    }
+
+    override fun enableFollowLocation() {
+        super.enableFollowLocation()
+        lastCenterLat = Double.NaN // recentre on the next frame
+    }
+
+    /** Draw the marker at the smoothed position with the smoothed heading. */
+    override fun drawMyLocation(canvas: android.graphics.Canvas, pj: org.osmdroid.views.Projection, lastFix: Location) {
+        if (shownLat.isNaN()) {
+            super.drawMyLocation(canvas, pj, lastFix)
+            return
+        }
+        pj.toPixels(GeoPoint(shownLat, shownLon), drawPx)
+        val x = drawPx.x.toFloat()
+        val y = drawPx.y.toFloat()
+        canvas.save()
+        val sb = shownBearing
+        if (sb != null && mDirectionArrowBitmap != null) {
+            canvas.rotate(sb, x, y)
+            canvas.drawBitmap(mDirectionArrowBitmap, x - mDirectionArrowCenterX, y - mDirectionArrowCenterY, mPaint)
+        } else if (mPersonBitmap != null) {
+            canvas.rotate(-map.mapOrientation, x, y)
+            canvas.drawBitmap(mPersonBitmap, x - mPersonHotspot.x, y - mPersonHotspot.y, mPaint)
+        }
+        canvas.restore()
+    }
+
+    private companion object {
+        const val EASE_S = 0.25
+        fun metres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+            val dy = (lat2 - lat1) * 111_320.0
+            val dx = (lon2 - lon1) * 111_320.0 * kotlin.math.cos(Math.toRadians(lat1))
+            return kotlin.math.sqrt(dx * dx + dy * dy)
         }
     }
 }

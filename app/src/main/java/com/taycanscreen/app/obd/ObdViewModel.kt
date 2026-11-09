@@ -437,7 +437,7 @@ object ObdEngine {
         }
         _readings.value = _readings.value + (sig.id to reading)
         if (reading.value != null) com.taycanscreen.app.ui.Boot.mark("First car data")
-        if (sig == Taycan.SPEED) com.taycanscreen.app.audio.EqEngine.onSpeed(reading.value?.let { it * 0.621371 })
+        if (sig == Taycan.SPEED_DIR) com.taycanscreen.app.audio.EqEngine.onSpeed(reading.value?.let { kotlin.math.abs(it) * 0.621371 })
         AppLog.info("value", "${sig.id} = ${reading.value?.let { "%.2f %s".format(it, sig.unit) } ?: "—"} (${reading.raw})")
     }
 

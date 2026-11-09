@@ -102,7 +102,7 @@ private data class VehicleValues(
             val adapterVolts = low?.value?.takeIf { lowAge!! < 180_000 }?.let { V(it, lowAge!! > 90_000) }
             return VehicleValues(
                 soc = r.v(Taycan.SOC_DISPLAY, now),
-                speedMph = r.v(Taycan.SPEED, now)?.let { V(it.x * 0.621371, it.dim) },
+                speedMph = (r.v(Taycan.SPEED_DIR, now) ?: r.v(Taycan.SPEED, now))?.let { V(kotlin.math.abs(it.x) * 0.621371, it.dim) },
                 rangeMi = r.v(Taycan.RANGE, now),
                 outsideF = r.v(Taycan.AMBIENT, now)?.let { V(cToF(it.x), it.dim) },
                 volts = volts,
