@@ -155,3 +155,4 @@ I work entirely from my iPhone. You can't reach the box directly, so:
   - Speed limit: all Overpass lookups timed out (SocketTimeout). Build 150: 10 s connect / 25 s read, [timeout:20], only when online, back-off 20 s × failures (≤ 5 min).
   - Build 142 cold start: Spotify "UserNotAuthorized" (fixed in 143 by the automatic re-allow).
   - Screenshot: v3 panel renders; missing speed showed as a heavy em-dash bar → now a faint short dash.
+- 2026-11-09: Owner photo (build 149, night; map still CARTO "API KEY REQUIRED", fixed in 150): dock twice as tall with icons scaled; a digital clock about the size of Porsche's "82 °F". Build 151: dock 128 px (icons 46 in 100×112 targets, active dot 8, EQ light 12, trip label 18, volume ± 96×112 with 30 px number); panel top row = clock 46 px Inter Tight (press and hold = screenshot) with direction / outside °F stacked small on the right.

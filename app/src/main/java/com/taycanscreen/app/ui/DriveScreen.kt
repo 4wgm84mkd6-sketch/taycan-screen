@@ -354,7 +354,7 @@ private fun DriveContent(
                     onOpenMusic = { panel = if (panel == "music") null else "music" },
                     onOpenAudio = { panel = if (panel == "audio") null else "audio" },
                     onOpenLedger = { panel = if (panel == "ledger") null else "ledger" },
-                    modifier = Modifier.fillMaxWidth().height(64.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() },
+                    modifier = Modifier.fillMaxWidth().height(128.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() },
                 )
             }
         }
@@ -401,12 +401,13 @@ private fun V3Panel(
     modifier: Modifier,
 ) {
     val context = LocalContext.current
-    Column(modifier.padding(start = 36.dp, end = 36.dp, top = 26.dp, bottom = 22.dp)) {
-        // Time (press and hold: screenshot for the log) · direction of travel · outside temperature.
-        Row(Modifier.fillMaxWidth().height(28.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier.padding(start = 36.dp, end = 36.dp, top = 22.dp, bottom = 20.dp)) {
+        // Big digital clock (owner, 2026-11-09: about the size of Porsche's "82 °F"); press and hold for a
+        // screenshot. Direction of travel and outside temperature stacked on the right.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BasicText(
                 java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("h:mm")),
-                Modifier.pointerInput(Unit) {
+                Modifier.capBox(46.dp, pad = 2.dp).pointerInput(Unit) {
                     detectTapGestures(onLongPress = {
                         com.taycanscreen.app.log.Screenshots.capture("owner") { ok ->
                             Toast.makeText(
@@ -417,27 +418,28 @@ private fun V3Panel(
                         }
                     })
                 },
-                style = Filament.label(13.sp, c.text, 0.06f),
+                style = Filament.num(46.sp, 400, c.text).copy(letterSpacing = (-1).sp),
             )
             Spacer(Modifier.weight(1f))
-            if (tireWarn > 0) {
-                BasicText(
-                    "TIRE PRESSURE LOW ›",
-                    Modifier.clickable { onLedger("TIRES") },
-                    style = Filament.label(13.sp, if (tireWarn > 1) c.danger else c.warn, 0.06f, 500),
-                )
-            } else {
-                BasicText(headingName ?: "", style = Filament.label(13.sp, c.textDim, 0.06f))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (tireWarn > 0) {
+                    BasicText(
+                        "TIRE PRESSURE LOW ›",
+                        Modifier.clickable { onLedger("TIRES") },
+                        style = Filament.label(13.sp, if (tireWarn > 1) c.danger else c.warn, 0.06f, 500),
+                    )
+                } else {
+                    BasicText(headingName ?: "", style = Filament.label(13.sp, c.textDim, 0.06f))
+                }
+                BasicText(v.outsideF?.let { "${it.x.roundToInt()}°F" } ?: NO_DATA, style = Filament.label(13.sp, c.textDim, 0.06f))
             }
-            Spacer(Modifier.weight(1f))
-            BasicText(v.outsideF?.let { "${it.x.roundToInt()}°" } ?: NO_DATA, style = Filament.label(13.sp, c.textDim, 0.06f))
         }
 
         if (charging) {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
             ChargingBlock(v.soc, v.kw?.x ?: 0.0, v.rangeMi, v.packMaxC, c)
         } else {
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(14.dp))
             // Speed, with gear, the road's limit and the unit on the right.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 // No speed yet: a short faint dash (an em dash at this size is a heavy bar).
@@ -683,12 +685,13 @@ private fun V3Dock(
             .padding(horizontal = 28.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Twice as tall as the v3 board's 64 px (owner, 2026-11-09); everything scaled with it.
         BasicText(
             "TRIP ${tripMi?.let { "%.1f".format(it) } ?: NO_DATA} MI",
-            Modifier.width(170.dp),
-            style = Filament.label(12.sp, c.textFaint, 0.1f),
+            Modifier.width(200.dp),
+            style = Filament.label(18.sp, c.textFaint, 0.08f),
         )
-        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally)) {
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
             DockIcon(FIcons.Navigate, if (panel == "search") "Close destination search" else "Search for a destination", panel == null || panel == "search", c, onClick = onNavigate)
             DockIcon(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
             // Amber corner light while the EQ isn't on Spotify's audio.
@@ -702,18 +705,18 @@ private fun V3Dock(
             DockIcon(themeIcon, "Day/night: ${themeMode.label()}", false, c, onClick = onCycleTheme)
             DockIcon(FIcons.Setup, "Setup", false, c, onClick = onOpenSetup)
         }
-        VolumeControl(c, Modifier.width(170.dp))
+        VolumeControl(c, Modifier.width(244.dp))
     }
 }
 
 @Composable
 private fun DockIcon(icon: ImageVector, description: String, active: Boolean, c: DriveColors, light: Color? = null, onClick: () -> Unit) {
-    Box(Modifier.size(56.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Icon(icon, contentDescription = description, tint = if (active) c.text else c.textFaint, modifier = Modifier.size(24.dp))
-            Box(Modifier.size(4.dp).clip(CircleShape).background(if (active) c.accent else Color.Transparent))
+    Box(Modifier.size(100.dp, 112.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(icon, contentDescription = description, tint = if (active) c.text else c.textFaint, modifier = Modifier.size(46.dp))
+            Box(Modifier.size(8.dp).clip(CircleShape).background(if (active) c.accent else Color.Transparent))
         }
-        if (light != null) Box(Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 10.dp).size(7.dp).clip(CircleShape).background(light))
+        if (light != null) Box(Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 16.dp).size(12.dp).clip(CircleShape).background(light))
     }
 }
 
@@ -734,12 +737,12 @@ private fun VolumeControl(c: DriveColors, modifier: Modifier) {
         vol = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
     }
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End)) {
-        Box(Modifier.size(56.dp).clickable { adjust(AudioManager.ADJUST_LOWER) }, contentAlignment = Alignment.Center) {
-            Icon(FIcons.Minus, "Volume down", tint = c.textDim, modifier = Modifier.size(24.dp))
+        Box(Modifier.size(96.dp, 112.dp).clickable { adjust(AudioManager.ADJUST_LOWER) }, contentAlignment = Alignment.Center) {
+            Icon(FIcons.Minus, "Volume down", tint = c.textDim, modifier = Modifier.size(44.dp))
         }
-        BasicText("$vol", Modifier.width(34.dp), style = Filament.label(15.sp, c.text, 0f, 500).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
-        Box(Modifier.size(56.dp).clickable { adjust(AudioManager.ADJUST_RAISE) }, contentAlignment = Alignment.Center) {
-            Icon(FIcons.Plus, "Volume up", tint = c.textDim, modifier = Modifier.size(24.dp))
+        BasicText("$vol", Modifier.width(48.dp), style = Filament.num(30.sp, 500, c.text).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+        Box(Modifier.size(96.dp, 112.dp).clickable { adjust(AudioManager.ADJUST_RAISE) }, contentAlignment = Alignment.Center) {
+            Icon(FIcons.Plus, "Volume up", tint = c.textDim, modifier = Modifier.size(44.dp))
         }
     }
 }
