@@ -181,6 +181,7 @@ fun MapArea(
     val locationOverlay = remember(locationGranted) {
         if (!locationGranted) null
         else CarLocationOverlay(locationProvider(context), mapView, { headingUp.value }, ::carSpeedKmh, { _, loc, bearing ->
+            com.taycanscreen.app.nav.Nav.onLocation(loc.latitude, loc.longitude)
             if (gps.fix == null) {
                 Boot.mark("First GPS fix")
                 // After the hand-off, lock the reticle on now (or when ring 2 lands, if it's still flying).
@@ -406,6 +407,11 @@ fun MapArea(
                 it.invalidate()
             },
         )
+        // Active route (drawn under the car marker); framing a new route pauses following for 10 s.
+        RouteOnMap(mapView, c) {
+            locationOverlay?.disableFollowLocation()
+            lastTouchAt = System.currentTimeMillis()
+        }
         // Scan lines at night, the panel's edge shadow, and corner brackets.
         Canvas(Modifier.fillMaxSize()) {
             val u = density
@@ -482,6 +488,8 @@ fun MapArea(
         }
 
         GpsChip(gps, locationGranted, c, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 16.dp))
+        NextTurnBanner(c, Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 14.dp))
+        RouteCard(c, Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
 
         BasicText(
             "© OpenStreetMap contributors",

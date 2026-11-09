@@ -337,6 +337,10 @@ private fun DriveContent(
                 // The map keeps running underneath while Music is open, so it's current when you close it.
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     MapArea(c, v.outsideF, locationGranted, gps, targets, Modifier.fillMaxSize())
+                    if (panel == "search") SearchPanel(
+                        c, v.speedMph?.x, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
+                        onClose = { panel = null }, modifier = Modifier.fillMaxSize(),
+                    )
                     if (panel == "lv") LowVoltagePanel(v.lowVoltage, c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
                     CompositionLocalProvider(LocalDensity provides realDensity) {
                         when (panel) {
@@ -356,10 +360,7 @@ private fun DriveContent(
                 c, themeMode, panel,
                 carOk = carOk, gpsOk = gps.fix != null, spotifyOk = spotifyOk,
                 onCycleTheme = onCycleTheme, onOpenVehicle = onOpenVehicle, onOpenSetup = onOpenSetup,
-                onNavigate = {
-                    if (panel != null) panel = null
-                    else launchFirst(context, "Google Maps", "com.google.android.apps.maps", "com.waze")
-                },
+                onNavigate = { panel = if (panel == "search") null else "search" },
                 onOpenMusic = { panel = if (panel == "music") null else "music" },
                 onOpenAudio = { panel = if (panel == "audio") null else "audio" },
                 modifier = Modifier.fillMaxWidth().height(96.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() },
@@ -503,7 +504,7 @@ private fun Dock(
             }
         }
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-            DockButton(FIcons.Navigate, if (panel == null) "Navigate (opens Maps or Waze)" else "Back to the map", panel == null, c, onClick = onNavigate)
+            DockButton(FIcons.Navigate, if (panel == "search") "Close destination search" else "Search for a destination", panel == null || panel == "search", c, onClick = onNavigate)
             DockButton(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
             // Status light: cyan when the EQ is on Spotify's audio, amber when it isn't (see the Audio panel).
             val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()

@@ -122,6 +122,22 @@ object FIcons {
     val Prev = stroke("prev", 1.6f, "M19 5L9 12l10 7z M5 5v14")
     val Next = stroke("next", 1.6f, "M5 5l10 7-10 7z M19 5v14")
     val Close = stroke("close", 1.6f, "M5 5l14 14 M19 5L5 19")
+    val Search = stroke("search", 1.6f, "M4 10.5a6.5 6.5 0 1 0 13 0a6.5 6.5 0 1 0-13 0 M15.5 15.5L21 21")
+    val Pin = stroke("pin", 1.6f, "M12 21s-6.5-6.2-6.5-11.5a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21z M10 9.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0")
+    val Recent = stroke("recent", 1.6f, "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M12 7v5l3 2")
+    val Backspace = stroke("backspace", 1.6f, "M8 5h12v14H8l-6-7z M11 9l6 6 M17 9l-6 6")
+    val Shift = stroke("shift", 1.6f, "M12 4l8 8h-4.5v7h-7v-7H4z")
+
+    // Turn arrows for the next-manoeuvre banner (drawn heavier so they read at a glance).
+    val TurnStraight = stroke("t-straight", 2.4f, "M12 21V4 M6 10l6-6 6 6")
+    val TurnRight = stroke("t-right", 2.4f, "M6 21v-8a4 4 0 0 1 4-4h10 M15 4l5 5-5 5")
+    val TurnLeft = stroke("t-left", 2.4f, "M18 21v-8a4 4 0 0 0-4-4H4 M9 4L4 9l5 5")
+    val TurnSlightRight = stroke("t-sright", 2.4f, "M8 21v-7l9-9 M11 5h6v6")
+    val TurnSlightLeft = stroke("t-sleft", 2.4f, "M16 21v-7L7 5 M13 5H7v6")
+    val TurnSharpRight = stroke("t-shright", 2.4f, "M7 21V6l11 11 M18 10v7h-7")
+    val TurnSharpLeft = stroke("t-shleft", 2.4f, "M17 21V6L6 17 M6 10v7h7")
+    val UTurn = stroke("t-uturn", 2.4f, "M16 21V9a4 4 0 0 0-8 0v8 M4 13l4 4 4-4")
+    val Roundabout = stroke("t-round", 2.4f, "M12 21v-6 M12 15a4 4 0 1 1 4-4 M16 11V6 M13 8l3-3 3 3")
     val Play = filled("play", "M7 4.5v15L19.5 12z")
     val Pause = filled("pause", "M6.5 4.5h4v15h-4z M13.5 4.5h4v15h-4z")
 }
