@@ -81,7 +81,6 @@ import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.obd.Taycan
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
@@ -97,23 +96,34 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/** Filament map styling (MapStyle board): one 4×5 ColorMatrix per theme over OSM Standard tiles. */
-private val NightMapFilter by lazy {
+/**
+ * Map tiles: CARTO basemaps (OpenStreetMap data) at double resolution (512 px "@2x" tiles), so the map
+ * can be shown larger, Porsche-style, and stay sharp. OSM's own tiles are 256 px and blur when enlarged.
+ * Day = Voyager, night = Dark Matter with a Filament teal tint. Free for this kind of personal use
+ * with the "© OpenStreetMap contributors © CARTO" credit shown on the map.
+ */
+private fun cartoSource(name: String, path: String) = org.osmdroid.tileprovider.tilesource.XYTileSource(
+    name, 0, 20, 512, "@2x.png",
+    arrayOf("a", "b", "c", "d").map { "https://$it.basemaps.cartocdn.com/$path/" }.toTypedArray(),
+    "© OpenStreetMap contributors © CARTO",
+)
+private val DayTiles by lazy { cartoSource("CartoVoyager2x", "rastertiles/voyager") }
+private val NightTiles by lazy { cartoSource("CartoDark2x", "dark_all") }
+/** Dark Matter is neutral grey; tint it towards Filament's teal (greys → cyan-leaning, labels stay light). */
+private val NightTint by lazy {
     ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-        0.1914f, -0.4632f, -0.3673f, 0f, 160.47f,
-        0.5202f, -0.6820f, -0.6743f, 0f, 222.81f,
-        0.6474f, -0.8464f, -0.6799f, 0f, 241.55f,
+        0.80f, 0f, 0f, 0f, 0f,
+        0f, 0.98f, 0f, 0f, 6f,
+        0f, 0f, 1.08f, 0f, 12f,
         0f, 0f, 0f, 1f, 0f,
     )))
 }
-private val DayMapFilter by lazy {
-    ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-        0.8469f, 0.1873f, -0.0075f, 0f, -12.92f,
-        0.6097f, 0.2451f, 0.0394f, 0f, 29.10f,
-        0.6383f, -0.0369f, 0.2545f, 0f, 43.70f,
-        0f, 0f, 0f, 1f, 0f,
-    )))
-}
+
+/**
+ * Map size (owner, 2026-11-09: Porsche's map reads better). osmdroid already draws a 512 px tile at
+ * the size of a 256 px one, so 1.0 = the old map's text size (now sharp); 2.0 ≈ Porsche's.
+ */
+private enum class MapSize(val scale: Float, val short: String) { Large(2.0f, "L"), Medium(1.5f, "M"), Small(1.0f, "S") }
 
 /** What the map knows about the car's position, shared with the start-up sequence. */
 @Stable
@@ -166,7 +176,7 @@ fun MapArea(
             // Keep the map inside its own area (it pans by scrolling and otherwise spills over the panel).
             outlineProvider = ViewOutlineProvider.BOUNDS
             clipToOutline = true
-            setTileSource(TileSourceFactory.MAPNIK)
+            setTileSource(DayTiles)
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             isTilesScaledToDpi = true
@@ -177,6 +187,13 @@ fun MapArea(
     val prefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
     var lastTouchAt by remember { mutableLongStateOf(0L) }
     var northUp by remember { mutableStateOf(prefs.getBoolean("north_up", false)) }
+    var mapSize by remember {
+        mutableStateOf(runCatching { MapSize.valueOf(prefs.getString("map_size", "Large")!!) }.getOrDefault(MapSize.Large))
+    }
+    LaunchedEffect(mapSize) {
+        mapView.tilesScaleFactor = mapSize.scale
+        mapView.invalidate()
+    }
     val headingUp = rememberUpdatedState(!northUp)
     val locationOverlay = remember(locationGranted) {
         if (!locationGranted) null
@@ -403,7 +420,9 @@ fun MapArea(
             factory = { mapView },
             modifier = Modifier.fillMaxSize().clipToBounds(),
             update = {
-                it.overlayManager.tilesOverlay.setColorFilter(if (c.isNight) NightMapFilter else DayMapFilter)
+                val tiles = if (c.isNight) NightTiles else DayTiles
+                if (it.tileProvider.tileSource.name() != tiles.name()) it.setTileSource(tiles)
+                it.overlayManager.tilesOverlay.setColorFilter(if (c.isNight) NightTint else null)
                 it.invalidate()
             },
         )
@@ -477,6 +496,19 @@ fun MapArea(
                 prefs.edit().putBoolean("north_up", northUp).apply()
                 AppLog.info("map", if (northUp) "North up" else "Heading up")
             }
+            // Map size: L (Porsche-like, default) → M → S.
+            Column(
+                Modifier.size(72.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
+                    mapSize = MapSize.entries[(mapSize.ordinal + 1) % MapSize.entries.size]
+                    prefs.edit().putString("map_size", mapSize.name).apply()
+                    AppLog.info("map", "Map size ${mapSize.name}")
+                },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                BasicText("Aa", style = Filament.text(24.sp, 600, c.accent))
+                BasicText("SIZE ${mapSize.short}", style = Filament.label(11.sp, c.textDim, 0.08f))
+            }
             Box(Modifier.background(c.overlay, Filament.CutS).insetLine(c.border)) {
                 MapButton(FIcons.Recenter, "Recenter", c.text) {
                     locationOverlay?.let { o ->
@@ -492,7 +524,7 @@ fun MapArea(
         RouteCard(c, Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
 
         BasicText(
-            "© OpenStreetMap contributors",
+            "© OpenStreetMap contributors © CARTO",
             Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp)
                 .background(c.overlay).padding(horizontal = 6.dp, vertical = 2.dp),
             style = Filament.text(11.sp, 400, c.textFaint),

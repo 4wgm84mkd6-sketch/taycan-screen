@@ -66,6 +66,13 @@ const val NO_DATA = "—"
 /** A value from the car with its freshness: [dim] once it's getting old (shown faded), gone once stale. */
 data class V(val x: Double, val dim: Boolean)
 
+/** Places a child centred on [x] with its first text baseline at [baseline] inside the parent. */
+fun Modifier.baselineAt(x: Dp, baseline: Dp) = layout { m, c ->
+    val p = m.measure(c.copy(minWidth = 0, minHeight = 0))
+    val b = p[androidx.compose.ui.layout.FirstBaseline].takeIf { it != androidx.compose.ui.layout.AlignmentLine.Unspecified } ?: p.height
+    layout(p.width, p.height) { p.place(x.roundToPx() - p.width / 2, baseline.roundToPx() - b) }
+}
+
 /** Places a child so its centre sits at (x, y) inside the parent. */
 fun Modifier.centerAt(x: Dp, y: Dp) = layout { m, c ->
     val p = m.measure(c.copy(minWidth = 0, minHeight = 0))
@@ -182,16 +189,15 @@ fun PowerGauge(
             BasicText("+$k", Modifier.centerAt(q.x.dp, q.y.dp), style = Filament.label(13.sp, c.textFaint, 0f))
         }
         val glowText = if (c.glow > 0f) c.accent.copy(alpha = 0.5f) else null
-        Column(Modifier.fillMaxWidth().offset(y = 52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            BasicText(
-                speedMph?.x?.roundToInt()?.toString() ?: NO_DATA,
-                Modifier.alpha(if (speedMph?.dim == true) 0.45f else 1f),
-                style = Filament.num(132.sp, 500, c.text, glowText).copy(letterSpacing = (-2.6).sp, lineHeight = 130.sp),
-                maxLines = 1,
-            )
-            BasicText("MPH", Modifier.offset(y = (-6).dp), style = Filament.label(14.sp, c.textDim, 0.24f))
-        }
-        Box(Modifier.fillMaxWidth().offset(y = 214.dp), contentAlignment = Alignment.TopCenter) {
+        // Fixed baselines (design: speed ≈ 169, MPH ≈ 207, power row ≈ 250), so bigger text can't overlap.
+        BasicText(
+            speedMph?.x?.roundToInt()?.toString() ?: NO_DATA,
+            Modifier.baselineAt(196.dp, 164.dp).alpha(if (speedMph?.dim == true) 0.45f else 1f),
+            style = Filament.num(132.sp, 500, c.text, glowText).copy(letterSpacing = (-2.6).sp),
+            maxLines = 1,
+        )
+        BasicText("MPH", Modifier.baselineAt(196.dp, 194.dp), style = Filament.label(14.sp, c.textDim, 0.24f))
+        Box(Modifier.fillMaxWidth().offset(y = 206.dp), contentAlignment = Alignment.TopCenter) {
             if (linkProblem != null) {
                 BasicText(
                     linkProblem.uppercase(), Modifier.padding(horizontal = 24.dp),
@@ -206,7 +212,12 @@ fun PowerGauge(
                     else -> Triple("IDLE", "0", c.textDim)
                 }
                 Row(
-                    Modifier.alpha(if (kw?.dim == true) 0.45f else 1f),
+                    Modifier.layout { m, cons ->
+                        // Baseline of the power row at 244 in the gauge (this Box starts at 206).
+                        val p = m.measure(cons.copy(minWidth = 0, minHeight = 0))
+                        val b = p[androidx.compose.ui.layout.FirstBaseline].takeIf { it != androidx.compose.ui.layout.AlignmentLine.Unspecified } ?: p.height
+                        layout(p.width, p.height) { p.place(0, 38.dp.roundToPx() - b) }
+                    }.alpha(if (kw?.dim == true) 0.45f else 1f),
                     verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     BasicText(label, Modifier.alignByBaseline(), style = Filament.label(13.sp, c.textDim, 0.18f))
