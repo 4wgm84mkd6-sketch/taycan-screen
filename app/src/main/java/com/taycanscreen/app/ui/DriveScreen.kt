@@ -6,6 +6,8 @@ import android.media.AudioManager
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -421,18 +423,19 @@ private fun V3Panel(
                 style = Filament.num(46.sp, 400, c.text).copy(letterSpacing = (-1).sp),
             )
             Spacer(Modifier.weight(1f))
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (tireWarn > 0) {
-                    BasicText(
-                        "TIRES LOW ›",
-                        Modifier.clickable { onLedger("TIRES") },
-                        style = Filament.label(13.sp, if (tireWarn > 1) c.danger else c.warn, 0.06f, 500),
-                    )
-                } else {
-                    BasicText(headingName ?: "", style = Filament.label(13.sp, c.textDim, 0.06f))
-                }
-                BasicText(v.outsideF?.let { "${it.x.roundToInt()}°F" } ?: NO_DATA, style = Filament.label(13.sp, c.textDim, 0.06f))
-            }
+            // Outside temperature at the clock's size (owner, 2026-11-09).
+            BasicText(
+                v.outsideF?.let { "${it.x.roundToInt()}°" } ?: NO_DATA,
+                Modifier.capBox(58.dp, pad = 2.dp),
+                style = Filament.num(46.sp, 400, c.text).copy(letterSpacing = (-1).sp),
+            )
+        }
+        if (tireWarn > 0) {
+            BasicText(
+                "TIRE PRESSURE LOW ›",
+                Modifier.padding(top = 8.dp).clickable { onLedger("TIRES") },
+                style = Filament.label(13.sp, if (tireWarn > 1) c.danger else c.warn, 0.06f, 500),
+            )
         }
 
         if (charging) {
@@ -461,7 +464,7 @@ private fun V3Panel(
                             BasicText("${limit.mph}", style = Filament.num(24.sp, 500, if (over) c.warn else c.text))
                         }
                     }
-                    BasicText(v.gear ?: NO_DATA, style = Filament.label(13.sp, c.text, 0.1f, 500))
+                    BasicText(v.gear ?: NO_DATA, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
                     BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(13.sp, c.textFaint, 0.1f))
                 }
             }
@@ -483,15 +486,13 @@ private fun V3Panel(
                         style = Filament.num(56.sp, 300, if (soc == null) c.textFaint else col).copy(letterSpacing = (-1.5).sp),
                     )
                     BasicText("%", Modifier.alignByBaseline(), style = Filament.num(26.sp, 300, col))
-                    Spacer(Modifier.weight(1f))
+                    // Battery icon filled to the charge (owner, 2026-11-09: icon between % and range).
+                    BatteryIcon(soc?.x, col, c, Modifier.weight(1f).padding(horizontal = 14.dp).height(34.dp).align(Alignment.CenterVertically))
                     BasicText(
                         "${v.rangeMi?.x?.roundToInt() ?: NO_DATA} mi",
                         Modifier.alignByBaseline().alpha(if (v.rangeMi?.dim == true) 0.45f else 1f),
                         style = Filament.text(22.sp, 400, c.textDim),
                     )
-                }
-                Box(Modifier.fillMaxWidth().height(6.dp).background(c.border)) {
-                    if (soc != null) Box(Modifier.fillMaxWidth((soc.x / 100.0).toFloat().coerceIn(0f, 1f)).fillMaxHeight().background(col))
                 }
                 Row(Modifier.fillMaxWidth()) {
                     if (arrivePct != null) {
@@ -514,6 +515,26 @@ private fun V3Panel(
         Spacer(Modifier.weight(1f))
         if (showPlayer) {
             V3Player(c, now, onOpenMusic, Modifier.onGloballyPositioned { targets.nowPlaying = it.boundsInRoot() }, playerPulse)
+        }
+    }
+}
+
+/** Battery outline with a nub, filled to [pct] in the charge colour. */
+@Composable
+private fun BatteryIcon(pct: Double?, fill: Color, c: DriveColors, modifier: Modifier) {
+    Canvas(modifier) {
+        val s = density
+        val nub = 5 * s
+        val body = Size(size.width - nub - 2 * s, size.height)
+        drawRoundRect(c.textDim, size = body, cornerRadius = androidx.compose.ui.geometry.CornerRadius(5 * s), style = Stroke(2 * s))
+        drawRoundRect(
+            c.textDim, topLeft = Offset(body.width + 2 * s, size.height * 0.3f), size = Size(nub, size.height * 0.4f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2 * s),
+        )
+        if (pct != null) {
+            val inset = 5 * s
+            val w = (body.width - 2 * inset) * (pct / 100.0).toFloat().coerceIn(0f, 1f)
+            drawRoundRect(fill, topLeft = Offset(inset, inset), size = Size(w, body.height - 2 * inset), cornerRadius = androidx.compose.ui.geometry.CornerRadius(2 * s))
         }
     }
 }
@@ -572,6 +593,7 @@ private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, pr
 }
 
 /** Now playing (v3 style, enlarged at the owner's request): cover, title, artist, progress, round controls. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifier: Modifier, pulseT: Float?) {
     val status by SpotifyController.status.collectAsState()
@@ -587,65 +609,45 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
             },
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth().clickable(onClick = onOpenMusic),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Box(Modifier.size(84.dp).clip(RoundedCornerShape(4.dp)).background(c.coverBg), contentAlignment = Alignment.Center) {
-                val bmp = art
-                if (connected && bmp != null) {
-                    Image(bmp.asImageBitmap(), contentDescription = "Album art", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                } else {
-                    Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.size(30.dp))
-                }
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Larger, one line each (owner: song and artist were hard to read while driving).
-                BasicText(
-                    if (connected) np?.title ?: "Nothing playing" else "Spotify",
-                    style = Filament.text(22.sp, 600, c.text), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                BasicText(
-                    if (connected) np?.artist?.ifBlank { null } ?: "Tap to browse" else status.detail.ifBlank { "Connecting…" },
-                    style = Filament.text(18.sp, 500, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+        // Controls first (owner, 2026-11-09), then cover, title and artist.
         val track = np
-        val pos = if (track == null) 0L else (track.positionMs + if (track.paused) 0L else (now - track.positionAt)).coerceIn(0L, track.durationMs)
-        val pct = if (track == null || track.durationMs <= 0) 0f else pos.toFloat() / track.durationMs
-        Box(Modifier.fillMaxWidth().height(2.dp).background(c.border)) {
-            Box(Modifier.fillMaxWidth(pct.coerceIn(0f, 1f)).fillMaxHeight().background(c.text))
-        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(22.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
             RoundButton(FIcons.Prev, "Previous track", c, 60, false) { SpotifyController.previous() }
             val playing = track?.paused == false
             RoundButton(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", c, 68, true) { SpotifyController.togglePlay() }
             RoundButton(FIcons.Next, "Next track", c, 60, false) { SpotifyController.next() }
         }
-        // One-tap podcast (owner, 2026-11-09): newest "Up First" from NPR.
-        val context = LocalContext.current
-        val busy by com.taycanscreen.app.music.QuickPlay.busy.collectAsState()
-        val msg by com.taycanscreen.app.music.QuickPlay.message.collectAsState()
-        val show = com.taycanscreen.app.music.QuickPlay.UP_FIRST
         Row(
-            Modifier.fillMaxWidth().height(52.dp).border(1.dp, c.border)
-                .clickable { com.taycanscreen.app.music.QuickPlay.play(context, show) }
-                .padding(horizontal = 16.dp),
+            Modifier.fillMaxWidth().clickable(onClick = onOpenMusic),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Icon(FIcons.Play, null, tint = c.accent, modifier = Modifier.size(18.dp))
-            BasicText("UP FIRST", style = Filament.label(13.sp, c.text, 0.12f, 500))
-            BasicText("NPR · newest episode", Modifier.weight(1f), style = Filament.text(15.sp, 400, c.textDim), maxLines = 1)
-            if (busy == show.key) BasicText("…", style = Filament.label(15.sp, c.accent, 0f))
+            Box(Modifier.size(92.dp).clip(RoundedCornerShape(4.dp)).background(c.coverBg), contentAlignment = Alignment.Center) {
+                val bmp = art
+                if (connected && bmp != null) {
+                    Image(bmp.asImageBitmap(), contentDescription = "Album art", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.size(32.dp))
+                }
+            }
+            Column(Modifier.weight(1f).clipToBounds(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // Big, one line each; too long scrolls sideways instead of being cut off.
+                BasicText(
+                    if (connected) np?.title ?: "Nothing playing" else "Spotify",
+                    Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                    style = Filament.text(27.sp, 600, c.text), maxLines = 1, softWrap = false,
+                )
+                BasicText(
+                    if (connected) np?.artist?.ifBlank { null } ?: "Tap to browse" else status.detail.ifBlank { "Connecting…" },
+                    Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                    style = Filament.text(21.sp, 500, c.textDim), maxLines = 1, softWrap = false,
+                )
+            }
         }
-        if (msg != null) {
-            BasicText(
-                msg!!, Modifier.clickable { com.taycanscreen.app.music.QuickPlay.clearMessage() },
-                style = Filament.text(14.sp, 400, c.warn), maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
+        val pos = if (track == null) 0L else (track.positionMs + if (track.paused) 0L else (now - track.positionAt)).coerceIn(0L, track.durationMs)
+        val pct = if (track == null || track.durationMs <= 0) 0f else pos.toFloat() / track.durationMs
+        Box(Modifier.fillMaxWidth().height(3.dp).background(c.border)) {
+            Box(Modifier.fillMaxWidth(pct.coerceIn(0f, 1f)).fillMaxHeight().background(c.text))
         }
     }
 }
@@ -706,7 +708,8 @@ private fun V3Dock(
             DockIcon(themeIcon, "Day/night: ${themeMode.label()}", false, c, onClick = onCycleTheme)
             DockIcon(FIcons.Setup, "Setup", false, c, onClick = onOpenSetup)
         }
-        VolumeControl(c, Modifier.width(244.dp))
+        // Volume control removed (owner: the box's volume doesn't change the car's).
+        Spacer(Modifier.width(230.dp))
     }
 }
 

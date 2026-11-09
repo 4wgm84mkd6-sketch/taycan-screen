@@ -252,6 +252,8 @@ fun MusicPanel(
                     }
                 }
                 LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Quick play at the top of Spotify's home list (owner: Up First lives here, not on the Drive panel).
+                    if (stack.size <= 1) item { QuickPlayRow(com.taycanscreen.app.music.QuickPlay.UP_FIRST, "NPR · newest episode", c) }
                     items(stack.lastOrNull()?.second.orEmpty()) { item ->
                         BrowseRow(item, c, onOpen = { open(item) }, onPlay = { SpotifyController.play(item) })
                     }
@@ -338,6 +340,30 @@ private fun BigControl(icon: ImageVector, description: String, c: DriveColors, f
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription = description, tint = if (filled) c.panel else c.text, modifier = Modifier.size(32.dp))
         }
+    }
+}
+
+@Composable
+private fun QuickPlayRow(show: com.taycanscreen.app.music.QuickPlay.Show, subtitle: String, c: DriveColors) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val busy by com.taycanscreen.app.music.QuickPlay.busy.collectAsState()
+    val msg by com.taycanscreen.app.music.QuickPlay.message.collectAsState()
+    Column {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(12.dp)).background(c.chip)
+                .clickable { com.taycanscreen.app.music.QuickPlay.play(context, show) }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(DesignIcons.Play, contentDescription = null, tint = c.accent, modifier = Modifier.size(26.dp))
+            Column(Modifier.weight(1f)) {
+                Text(show.label, color = c.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(subtitle, color = c.textDim, fontSize = 14.sp, maxLines = 1)
+            }
+            if (busy == show.key) Text("…", color = c.accent, fontSize = 18.sp)
+        }
+        msg?.let { Text(it, color = c.warn, fontSize = 14.sp, modifier = Modifier.clickable { com.taycanscreen.app.music.QuickPlay.clearMessage() }.padding(8.dp)) }
     }
 }
 
