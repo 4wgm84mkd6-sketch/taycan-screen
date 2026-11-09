@@ -91,6 +91,7 @@ private data class VehicleValues(
     val packMaxC: V?,
     val gear: String?,
     val lowVolts: V?,
+    val lowVoltage: LowVoltageValues,
 ) {
     companion object {
         fun from(r: Map<String, Reading>, low: Reading?, now: Long): VehicleValues {
@@ -98,6 +99,7 @@ private data class VehicleValues(
                 ?: r.v(Taycan.HV_VOLTAGE_1818, now)?.takeIf { it.x > 0 }
             val amps = r.v(Taycan.HV_CURRENT, now)
             val lowAge = low?.let { now - it.at }
+            val adapterVolts = low?.value?.takeIf { lowAge!! < 180_000 }?.let { V(it, lowAge!! > 90_000) }
             return VehicleValues(
                 soc = r.v(Taycan.SOC_DISPLAY, now),
                 speedMph = r.v(Taycan.SPEED, now)?.let { V(it.x * 0.621371, it.dim) },
@@ -108,7 +110,15 @@ private data class VehicleValues(
                 packMinC = r.v(Taycan.PACK_T_MIN, now),
                 packMaxC = r.v(Taycan.PACK_T_MAX, now),
                 gear = r.v(Taycan.GEAR, now)?.let { Taycan.gearLetter(it.x) },
-                lowVolts = low?.value?.takeIf { lowAge!! < 180_000 }?.let { V(it, lowAge!! > 90_000) },
+                lowVolts = adapterVolts,
+                lowVoltage = LowVoltageValues(
+                    soc = r.v(Taycan.LV_SOC, now),
+                    volts = r.v(Taycan.LV_VOLTAGE, now),
+                    adapterVolts = adapterVolts,
+                    chargeAh = r.v(Taycan.LV_CHARGE, now),
+                    capacityAh = r.v(Taycan.LV_CAPACITY, now),
+                    resistanceMilliOhm = r.v(Taycan.LV_RESISTANCE, now),
+                ),
             )
         }
     }
@@ -306,7 +316,10 @@ private fun DriveContent(
                                 targets.arc = it.boundsInRoot().topLeft + Offset(196 * dens, 170 * dens)
                             },
                         )
-                        BatteryBlock(v.soc, v.rangeMi, v.packMaxC, v.lowVolts, c)
+                        BatteryBlock(v.soc, v.rangeMi, v.packMaxC, v.lowVoltage, c, onOpen12V = {
+                            panel = if (panel == "lv") null else "lv"
+                            AppLog.info("ui", "12 V battery panel")
+                        })
                     }
                     Spacer(Modifier.weight(1f))
                     FilamentNowPlaying(
@@ -319,6 +332,7 @@ private fun DriveContent(
                 // The map keeps running underneath while Music is open, so it's current when you close it.
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     MapArea(c, v.outsideF, locationGranted, gps, targets, Modifier.fillMaxSize())
+                    if (panel == "lv") LowVoltagePanel(v.lowVoltage, c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
                     CompositionLocalProvider(LocalDensity provides realDensity) {
                         when (panel) {
                             "music" -> MusicPanel(

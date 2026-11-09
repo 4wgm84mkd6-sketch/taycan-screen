@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -222,8 +223,9 @@ fun PowerGauge(
 
 /** Battery % and range, the 20-segment bar, and pack temperature / 12 V (Filament Main, 78 px tall). */
 @Composable
-fun BatteryBlock(soc: V?, rangeMi: V?, packC: V?, lowVolts: V?, c: DriveColors, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().height(78.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+fun BatteryBlock(soc: V?, rangeMi: V?, packC: V?, lowVoltage: LowVoltageValues, c: DriveColors, onOpen12V: () -> Unit, modifier: Modifier = Modifier) {
+    // The whole block is the tap target for the 12 V gauge (the 12V line alone is too small to hit while driving).
+    Column(modifier.fillMaxWidth().height(78.dp).clickable(onClick = onOpen12V), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.Bottom) {
             Row(Modifier.alpha(if (soc?.dim == true) 0.45f else 1f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 BasicText(soc?.x?.roundToInt()?.toString() ?: NO_DATA, style = Filament.num(34.sp, 600, c.text))
@@ -263,9 +265,8 @@ fun BatteryBlock(soc: V?, rangeMi: V?, packC: V?, lowVolts: V?, c: DriveColors, 
             )
             Spacer(Modifier.weight(1f))
             BasicText(
-                "12V ${lowVolts?.x?.let { "%.1f".format(it) } ?: NO_DATA}",
-                Modifier.alpha(if (lowVolts?.dim == true) 0.45f else 1f),
-                style = Filament.label(13.sp, c.textFaint, 0f),
+                lowVoltageSummary(lowVoltage) + "  ›",
+                style = Filament.label(13.sp, c.textDim, 0f),
             )
         }
     }

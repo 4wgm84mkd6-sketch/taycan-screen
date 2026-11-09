@@ -274,9 +274,12 @@ object ObdEngine {
             for (sig in Taycan.POLLED) {
                 if (cycle % sig.pollEvery != 0L) continue
                 val cmd = sig.command
-                if (header != cmd.hdr) {
-                    c.send("ATSH${cmd.hdr}")
-                    c.send("ATCRA${cmd.rax}")
+                if (header != cmd.hdr || cmd.flowControl != customFlowControl) {
+                    // Also re-run when flow control differs on the same module (e.g. 710 2AB6 fc vs 2A0C).
+                    if (header != cmd.hdr) {
+                        c.send("ATSH${cmd.hdr}")
+                        c.send("ATCRA${cmd.rax}")
+                    }
                     if (cmd.flowControl) {
                         // Flow control frames for multi-frame replies go to this module's own id.
                         c.send("ATFCSH${cmd.hdr}")

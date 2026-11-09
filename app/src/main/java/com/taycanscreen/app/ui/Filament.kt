@@ -103,6 +103,7 @@ object FIcons {
     val Gps = stroke("gps", 1.8f, "M2.5 20a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0 M4 14a6 6 0 0 1 6 6 M4 8a12 12 0 0 1 12 12")
     val Prev = stroke("prev", 1.6f, "M19 5L9 12l10 7z M5 5v14")
     val Next = stroke("next", 1.6f, "M5 5l10 7-10 7z M19 5v14")
+    val Close = stroke("close", 1.6f, "M5 5l14 14 M19 5L5 19")
     val Play = filled("play", "M7 4.5v15L19.5 12z")
     val Pause = filled("pause", "M6.5 4.5h4v15h-4z M13.5 4.5h4v15h-4z")
 }

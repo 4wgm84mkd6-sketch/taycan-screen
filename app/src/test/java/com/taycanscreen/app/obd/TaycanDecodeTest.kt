@@ -37,6 +37,17 @@ class TaycanDecodeTest {
         check(Taycan.SOC_DISPLAY, "7E8076208D222932293", 88.51)     // 2025
     }
 
+    // 12 V battery, OBDb 2025 recordings (tests/test_cases/2025/commands/710.77A.222A0x).
+    @Test fun lowVoltageBattery() {
+        check(Taycan.LV_SOC, "77A04622A0C5C", 92.0)
+        check(Taycan.LV_SOC, "77A04622A0C61", 97.0)
+        check(Taycan.LV_CHARGE, "77A04622A0F1C", 28.0)
+        check(Taycan.LV_CAPACITY, "77A07622A0607002806", 40.0)
+        check(Taycan.LV_RESISTANCE, "77A04622A0E0E", 2.8)
+        check(Taycan.LV_VOLTAGE, "77A05622A07247C", 13.34)
+        check(Taycan.LV_VOLTAGE, "77A05622A0724A1", 13.377)
+    }
+
     @Test fun speed() {
         check(Taycan.SPEED, "7E80462F40D00", 0.0)
         check(Taycan.SPEED, "7E80462F40DB9", 185.0)                 // 2025

@@ -63,6 +63,11 @@ object Taycan {
     private val ENG_GEAR = ObdCommand("7E0", "7E8", "0884", extendedSession = false)
     private val ENG_AAT = ObdCommand("7E0", "7E8", "1004", extendedSession = false)
     private val GW_RANGE = ObdCommand("710", "77A", "2AB6", extendedSession = false, flowControl = true)
+    private val GW_12V_CAP = ObdCommand("710", "77A", "2A06", extendedSession = false, flowControl = true)
+    private val GW_12V_VOLT = ObdCommand("710", "77A", "2A07", extendedSession = false, flowControl = true)
+    private val GW_12V_SOC = ObdCommand("710", "77A", "2A0C", extendedSession = false)
+    private val GW_12V_R = ObdCommand("710", "77A", "2A0E", extendedSession = false)
+    private val GW_12V_AH = ObdCommand("710", "77A", "2A0F", extendedSession = false)
     private val BMS_CURR = ObdCommand("7E5", "7ED", "1802", extendedSession = true)
     private val BMS_T_MAX = ObdCommand("7E5", "7ED", "1E0E", extendedSession = true)
     private val BMS_T_MIN = ObdCommand("7E5", "7ED", "1E0F", extendedSession = true)
@@ -103,10 +108,23 @@ object Taycan {
     val RANGE = Signal("TAYCAN_RANGE", "Range remaining", GW_RANGE,
         len = 16, unit = "mi", pollEvery = 5)
 
+    // 12 V battery (gateway 710, OBDb "Battery" path). OBDb's 12 V current (2A09) is left out: its
+    // 2025 recordings all decode to 0 (OBDb clamps negatives), so it can't show charge/discharge.
+    val LV_SOC = Signal("TAYCAN_SSB_SOC", "12V battery state of charge", GW_12V_SOC,
+        len = 8, unit = "%", pollEvery = 10)
+    val LV_VOLTAGE = Signal("TAYCAN_BAT_V_2A07", "Battery voltage (12 V)", GW_12V_VOLT,
+        len = 16, div = 1000.0, add = 4.0, unit = "V", pollEvery = 5)
+    val LV_CHARGE = Signal("TAYCAN_SSB_AH", "12V battery charge", GW_12V_AH,
+        len = 8, unit = "Ah", pollEvery = 10)
+    val LV_CAPACITY = Signal("TAYCAN_12V_BAT_CAP", "12V battery capacity", GW_12V_CAP,
+        bix = 16, len = 8, unit = "Ah", pollEvery = 20)
+    val LV_RESISTANCE = Signal("TAYCAN_SSB_R", "12V battery resistance", GW_12V_R,
+        len = 8, mul = 2.0, div = 10.0, unit = "mΩ", pollEvery = 20)
+
     /** Polled in this order; grouped by module so the header changes as little as possible. */
     val POLLED = listOf(
         SOC_DISPLAY, SPEED, GEAR, AMBIENT,
         HV_VOLTAGE, HV_VOLTAGE_1818, HV_CURRENT, PACK_T_MAX, PACK_T_MIN,
-        RANGE,
+        RANGE, LV_VOLTAGE, LV_SOC, LV_CHARGE, LV_CAPACITY, LV_RESISTANCE,
     )
 }
