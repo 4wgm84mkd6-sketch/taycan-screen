@@ -155,6 +155,14 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         themeMode.value = runCatching { ThemeMode.valueOf(uiPrefs.getString("theme", "Auto")!!) }.getOrDefault(ThemeMode.Auto)
         refreshLocation()
+        // Boot timing: log when our first frame actually reaches the screen.
+        window.decorView.viewTreeObserver.addOnDrawListener(object : android.view.ViewTreeObserver.OnDrawListener {
+            override fun onDraw() {
+                com.taycanscreen.app.ui.Boot.markFirstFrame()
+                val listener = this
+                window.decorView.post { window.decorView.viewTreeObserver.removeOnDrawListener(listener) }
+            }
+        })
         setContent {
             TaycanTheme {
                 MainScreen(

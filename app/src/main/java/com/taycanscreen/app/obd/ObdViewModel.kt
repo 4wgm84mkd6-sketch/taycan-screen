@@ -67,6 +67,9 @@ object ObdEngine {
     val status: StateFlow<ObdStatus> = _status.asStateFlow()
     private val _readings = MutableStateFlow<Map<String, Reading>>(emptyMap())
     val readings: StateFlow<Map<String, Reading>> = _readings.asStateFlow()
+    /** 12 V supply measured by the adapter itself at the OBD port (ATRV; no car request). */
+    private val _lowVolts = MutableStateFlow<Reading?>(null)
+    val lowVolts: StateFlow<Reading?> = _lowVolts.asStateFlow()
 
     private var job: Job? = null
 
@@ -207,7 +210,13 @@ object ObdEngine {
         c.send("ATST64")           // reply timeout 0x64 x 4 ms = 400 ms
         c.send("ATI")              // log adapter id
         c.send("STI")              // log STN firmware id
-        c.send("ATRV")             // log 12 V at the OBD port
+        recordVolts(c.send("ATRV")) // 12 V at the OBD port (adapter measurement)
+    }
+
+    private fun recordVolts(reply: String): Double? {
+        val v = Regex("""(\d+(?:\.\d+)?)\s*V""").find(reply)?.groupValues?.get(1)?.toDoubleOrNull()
+        if (v != null) _lowVolts.value = Reading(v, reply.trim(), System.currentTimeMillis())
+        return v
     }
 
     private suspend fun pollForever(c: ElmConnection) {
@@ -308,13 +317,13 @@ object ObdEngine {
                 )
             }
             cycle++
+            if (cycle % 40 == 0L) adapterVolts(c) // refresh the 12 V readout now and then (adapter only)
             delay(150)
         }
     }
 
     /** The adapter's measurement of the 12 V supply at the OBD port ("ATRV" → "12.6V"). Adapter-only. */
-    private fun adapterVolts(c: ElmConnection): Double? =
-        Regex("""(\d+(?:\.\d+)?)\s*V""").find(c.send("ATRV"))?.groupValues?.get(1)?.toDoubleOrNull()
+    private fun adapterVolts(c: ElmConnection): Double? = recordVolts(c.send("ATRV"))
 
     private suspend fun runDiscovery(c: ElmConnection, req: Discovery.Request) {
         when (req) {
@@ -424,6 +433,7 @@ object ObdEngine {
             else -> Reading(null, "${sig.command.rax}: ${describe(r)}", now)
         }
         _readings.value = _readings.value + (sig.id to reading)
+        if (reading.value != null) com.taycanscreen.app.ui.Boot.mark("First car data")
         if (sig == Taycan.SPEED) com.taycanscreen.app.audio.EqEngine.onSpeed(reading.value?.let { it * 0.621371 })
         AppLog.info("value", "${sig.id} = ${reading.value?.let { "%.2f %s".format(it, sig.unit) } ?: "—"} (${reading.raw})")
     }

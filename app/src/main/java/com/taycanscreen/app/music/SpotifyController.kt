@@ -115,6 +115,7 @@ object SpotifyController {
                 remote = r
                 _status.value = Status(Link.Connected)
                 AppLog.info(TAG, "Connected to Spotify")
+                com.taycanscreen.app.ui.Boot.mark("Spotify connected")
                 subscribe(r)
             }
 
