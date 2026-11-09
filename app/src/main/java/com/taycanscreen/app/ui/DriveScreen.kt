@@ -326,7 +326,7 @@ private fun DriveContent(
             // The map keeps running underneath the panels, so it's current when you close them.
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.fillMaxWidth().weight(1f)) {
-                    MapArea(c, v.outsideF, locationGranted, gps, targets, Modifier.fillMaxSize())
+                    MapArea(c, v.outsideF, locationGranted, gps, targets, Modifier.fillMaxSize(), onSearch = { panel = "search" })
                     when (panel) {
                         "search" -> SearchPanel(
                             c, v.speedMph?.x, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
@@ -407,7 +407,7 @@ private fun V3Panel(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BasicText(
                 java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("h:mm")),
-                Modifier.capBox(46.dp, pad = 2.dp).pointerInput(Unit) {
+                Modifier.capBox(58.dp, pad = 2.dp).pointerInput(Unit) {
                     detectTapGestures(onLongPress = {
                         com.taycanscreen.app.log.Screenshots.capture("owner") { ok ->
                             Toast.makeText(
@@ -424,7 +424,7 @@ private fun V3Panel(
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (tireWarn > 0) {
                     BasicText(
-                        "TIRE PRESSURE LOW ›",
+                        "TIRES LOW ›",
                         Modifier.clickable { onLedger("TIRES") },
                         style = Filament.label(13.sp, if (tireWarn > 1) c.danger else c.warn, 0.06f, 500),
                     )
@@ -600,14 +600,15 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
                     Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.size(30.dp))
                 }
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Larger, one line each (owner: song and artist were hard to read while driving).
                 BasicText(
                     if (connected) np?.title ?: "Nothing playing" else "Spotify",
-                    style = Filament.text(20.sp, 500, c.text), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = Filament.text(22.sp, 600, c.text), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 BasicText(
                     if (connected) np?.artist?.ifBlank { null } ?: "Tap to browse" else status.detail.ifBlank { "Connecting…" },
-                    style = Filament.text(16.sp, 400, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = Filament.text(18.sp, 500, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -618,10 +619,10 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
             Box(Modifier.fillMaxWidth(pct.coerceIn(0f, 1f)).fillMaxHeight().background(c.text))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(22.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-            RoundButton(FIcons.Prev, "Previous track", c, 64, false) { SpotifyController.previous() }
+            RoundButton(FIcons.Prev, "Previous track", c, 60, false) { SpotifyController.previous() }
             val playing = track?.paused == false
-            RoundButton(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", c, 76, true) { SpotifyController.togglePlay() }
-            RoundButton(FIcons.Next, "Next track", c, 64, false) { SpotifyController.next() }
+            RoundButton(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", c, 68, true) { SpotifyController.togglePlay() }
+            RoundButton(FIcons.Next, "Next track", c, 60, false) { SpotifyController.next() }
         }
         // One-tap podcast (owner, 2026-11-09): newest "Up First" from NPR.
         val context = LocalContext.current
@@ -688,7 +689,7 @@ private fun V3Dock(
         // Twice as tall as the v3 board's 64 px (owner, 2026-11-09); everything scaled with it.
         BasicText(
             "TRIP ${tripMi?.let { "%.1f".format(it) } ?: NO_DATA} MI",
-            Modifier.width(200.dp),
+            Modifier.width(230.dp),
             style = Filament.label(18.sp, c.textFaint, 0.08f),
         )
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
@@ -711,7 +712,7 @@ private fun V3Dock(
 
 @Composable
 private fun DockIcon(icon: ImageVector, description: String, active: Boolean, c: DriveColors, light: Color? = null, onClick: () -> Unit) {
-    Box(Modifier.size(100.dp, 112.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(96.dp, 112.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(icon, contentDescription = description, tint = if (active) c.text else c.textFaint, modifier = Modifier.size(46.dp))
             Box(Modifier.size(8.dp).clip(CircleShape).background(if (active) c.accent else Color.Transparent))

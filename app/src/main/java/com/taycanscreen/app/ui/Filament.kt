@@ -49,9 +49,11 @@ object Filament {
      * (13 → 16, 20 → 23), tapering to nothing for the big numerals (the speed stays 132).
      */
     fun bump(size: TextUnit): TextUnit {
+        // Owner (2026-11-09, twice): text too small to read while driving. Small and mid sizes ×1.35,
+        // tapering to ×1 at 100 px (the speed stays as it is).
         val s = size.value
-        val extra = 3f * ((90f - s) / 60f).coerceIn(0f, 1f)
-        return (s + extra).sp
+        val f = 1f + 0.35f * ((100f - s) / 80f).coerceIn(0f, 1f)
+        return (s * f).sp
     }
 
     /** Tight line box (Saira's own is 1.57× the size, which clipped numbers in fixed-height rows). */

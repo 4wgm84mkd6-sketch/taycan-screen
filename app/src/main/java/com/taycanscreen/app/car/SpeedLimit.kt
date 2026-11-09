@@ -28,7 +28,13 @@ import kotlin.math.roundToInt
 object SpeedLimit {
     private const val TAG = "limit"
     private const val UA = "TaycanScreen/1.0 (personal in-car display)"
-    private val ENDPOINTS = listOf("https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter")
+    private val ENDPOINTS = listOf(
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    )
+    /** The endpoint that answered last time goes first. */
+    @Volatile private var preferred = 0
 
     data class Limit(val mph: Int, val road: String?, val at: Long)
 
@@ -84,26 +90,31 @@ object SpeedLimit {
     }
 
     private fun query(p: LatLon): String {
-        val q = "[out:json][timeout:20];way(around:30,%.6f,%.6f)[highway][maxspeed];out tags geom;".format(Locale.US, p.lat, p.lon)
+        val q = "[out:json][timeout:15];way(around:30,%.6f,%.6f)[highway][maxspeed];out tags geom;".format(Locale.US, p.lat, p.lon)
         var last: Exception? = null
-        for (url in ENDPOINTS) {
+        val order = ENDPOINTS.indices.sortedBy { if (it == preferred) -1 else it }
+        for (i in order) {
+            val url = ENDPOINTS[i]
+            val t0 = System.currentTimeMillis()
             try {
-                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    doOutput = true
-                    connectTimeout = 10_000
-                    readTimeout = 25_000
+                // GET (cacheable, simplest for the servers).
+                val conn = (URL(url + "?data=" + URLEncoder.encode(q, "UTF-8")).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 7_000
+                    readTimeout = 15_000
                     setRequestProperty("User-Agent", UA)
-                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 }
                 try {
-                    conn.outputStream.use { it.write(("data=" + URLEncoder.encode(q, "UTF-8")).toByteArray()) }
-                    if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP ${conn.responseCode}")
-                    return conn.inputStream.bufferedReader().use { it.readText() }
+                    val code = conn.responseCode
+                    if (code !in 200..299) throw java.io.IOException("HTTP $code")
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    if (preferred != i) AppLog.info(TAG, "Speed limits from ${URL(url).host} (${System.currentTimeMillis() - t0} ms)")
+                    preferred = i
+                    return body
                 } finally {
                     conn.disconnect()
                 }
             } catch (e: Exception) {
+                AppLog.warn(TAG, "${URL(url).host}: ${e.javaClass.simpleName} after ${System.currentTimeMillis() - t0} ms")
                 last = e
             }
         }

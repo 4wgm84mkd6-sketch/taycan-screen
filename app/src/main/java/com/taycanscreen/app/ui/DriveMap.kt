@@ -90,7 +90,7 @@ import kotlin.math.sin
  * Map size (owner, 2026-11-09: Porsche's map reads better). The vector map is drawn at
  * screen density × this, so text and roads grow and stay sharp.
  */
-private enum class MapSize(val scale: Float, val short: String) { Large(1.8f, "L"), Medium(1.4f, "M"), Small(1.0f, "S") }
+private enum class MapSize(val scale: Float, val short: String) { Large(2.1f, "L"), Medium(1.6f, "M"), Small(1.2f, "S") }
 
 /** Where the car marker is drawn and how it's turned on screen (updated every frame). */
 @Stable
@@ -142,6 +142,7 @@ fun MapArea(
     gps: GpsInfo,
     targets: DriveTargets,
     modifier: Modifier,
+    onSearch: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
@@ -291,6 +292,20 @@ fun MapArea(
 
         // GPS status only while there's no fix (v3 keeps the map clean).
         if (gps.fix == null) GpsChip(gps, locationGranted, c, Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 40.dp))
+        // "Search for destination" box, top left (owner, 2026-11-09, like Porsche's); the turn card takes
+        // its place during a route.
+        val activeRoute by com.taycanscreen.app.nav.Nav.active.collectAsState()
+        if (activeRoute == null) {
+            Row(
+                Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 28.dp).width(420.dp).height(72.dp)
+                    .background(c.overlay).insetLine(c.border).clickable(onClick = onSearch).padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Icon(FIcons.Search, null, tint = c.accent, modifier = Modifier.size(30.dp))
+                BasicText("Search for destination", style = Filament.text(20.sp, 500, c.textDim), maxLines = 1)
+            }
+        }
         NextTurnBanner(c, Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 28.dp))
         RouteCard(c, Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 28.dp))
 
@@ -403,6 +418,16 @@ private fun VectorMap(
         style?.let { MapTheme.apply(it, c, satellite) }
     }
 
+    // Until the map is ready, the "searching" reticle sits where the car will be (not in the corner).
+    LaunchedEffect(map, northUp) {
+        if (map != null) return@LaunchedEffect
+        while (true) {
+            val w = mapView.width.toFloat()
+            val h = mapView.height.toFloat()
+            if (w > 0f) targets.markerInMap = Offset(w / 2f, h / 2f + if (northUp) 0f else h * 0.22f)
+            delay(100)
+        }
+    }
     // Every frame: follow the predicted car position, and tell the overlays where the car is.
     LaunchedEffect(map, tracker, northUp) {
         val m = map ?: return@LaunchedEffect
