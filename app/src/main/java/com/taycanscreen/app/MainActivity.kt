@@ -152,6 +152,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState != null) AppLog.info("app", "Screen rebuilt by Android (restored state)")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         themeMode.value = runCatching { ThemeMode.valueOf(uiPrefs.getString("theme", "Auto")!!) }.getOrDefault(ThemeMode.Auto)
         refreshLocation()
@@ -221,6 +222,12 @@ class MainActivity : ComponentActivity() {
         requestBluetooth()
         SpotifyController.authorizationLauncher = { openSpotifyAuthorization() }
         SpotifyController.start(this)
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Handled in place (manifest configChanges), so the Drive screen and start-up aren't rebuilt.
+        AppLog.info("app", "Configuration changed in place: mcc ${newConfig.mcc} mnc ${newConfig.mnc} uiMode ${newConfig.uiMode} font ${newConfig.fontScale}")
     }
 
     override fun onResume() {

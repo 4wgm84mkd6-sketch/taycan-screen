@@ -21,6 +21,9 @@ object Boot {
     /** The start-up sequence has been shown (or skipped) in this process. */
     var startupShown = false
 
+    /** The start-up sequence has started (it continues if Android rebuilds the screen meanwhile). */
+    var startupBegun = false
+
     /** When the start-up hands off to Drive (elapsedRealtime); 0 = not yet. Drives the map wipe and fly-ins. */
     val handoffAt = MutableStateFlow(0L)
 

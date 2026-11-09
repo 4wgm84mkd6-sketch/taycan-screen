@@ -214,8 +214,10 @@ private fun DriveContent(
     // Start-up: once per app start, only when this screen is the first thing drawn.
     var showStartup by remember {
         mutableStateOf(
-            !Boot.startupShown &&
-                (Boot.firstFrameAt == 0L || SystemClock.elapsedRealtime() - Boot.firstFrameAt < 1_500),
+            !Boot.startupShown && (
+                Boot.startupBegun || Boot.firstFrameAt == 0L ||
+                    SystemClock.elapsedRealtime() - Boot.firstFrameAt < 1_500
+                ),
         )
     }
     LaunchedEffect(Unit) {

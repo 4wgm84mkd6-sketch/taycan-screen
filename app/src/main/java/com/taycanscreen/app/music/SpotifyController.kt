@@ -14,6 +14,7 @@ import com.spotify.protocol.types.ImageUri
 import com.spotify.protocol.types.ListItem
 import com.taycanscreen.app.BuildConfig
 import com.taycanscreen.app.log.AppLog
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -66,9 +67,28 @@ object SpotifyController {
 
     /** Call once from the activity; safe to call again (e.g. after the owner taps Connect). */
     fun start(context: Context) {
+        val first = !::appContext.isInitialized
         appContext = context.applicationContext
         connect(showAuth = true)
+        if (first) {
+            // Cold start: the box often has no internet for the first minute, and Spotify can't
+            // authenticate offline. Try again the moment the connection comes up.
+            kotlinx.coroutines.MainScope().launch {
+                com.taycanscreen.app.net.NetMonitor.online.collect { online ->
+                    if (online && remote?.isConnected != true && !connecting) {
+                        AppLog.info(TAG, "Internet is up: reconnecting to Spotify")
+                        handler.removeCallbacks(retry)
+                        connect(showAuth = _status.value.link == Link.NeedsAuthorization && authorizedBefore())
+                    }
+                }
+            }
+        }
     }
+
+    private fun prefs() = appContext.getSharedPreferences("spotify", Context.MODE_PRIVATE)
+    // Default true: this box has been allowed before (2026-11-08); a fresh install would need the same screen anyway.
+    private fun authorizedBefore() = prefs().getBoolean("authorized_before", true)
+    private var lastAutoAuthAt = 0L
 
     /** Set by the activity: opens Spotify's own "allow Taycan Screen" screen. */
     var authorizationLauncher: (() -> Unit)? = null
@@ -115,6 +135,7 @@ object SpotifyController {
                 remote = r
                 _status.value = Status(Link.Connected)
                 AppLog.info(TAG, "Connected to Spotify")
+                prefs().edit().putBoolean("authorized_before", true).apply()
                 com.taycanscreen.app.ui.Boot.mark("Spotify connected")
                 subscribe(r)
             }
@@ -133,8 +154,19 @@ object SpotifyController {
                     name == "CouldNotFindSpotifyApp" -> Status(Link.NotInstalled, "Install Spotify on the box and sign in")
                     else -> Status(Link.Failed, "Couldn't reach Spotify ($name)")
                 }
-                // Authorization needs the owner's tap; everything else retries by itself.
-                if (_status.value.link != Link.NeedsAuthorization) scheduleRetry(RETRY_MS)
+                // Spotify sometimes asks again for an app the owner already allowed (seen after a cold
+                // start). Its own screen passes an already-allowed app straight through, so show it
+                // automatically (at most every 10 minutes, and only with internet).
+                if (_status.value.link == Link.NeedsAuthorization) {
+                    val now = System.currentTimeMillis()
+                    if (authorizedBefore() && com.taycanscreen.app.net.NetMonitor.online.value && now - lastAutoAuthAt > 600_000) {
+                        lastAutoAuthAt = now
+                        AppLog.info(TAG, "Spotify asks to allow the app again; it was allowed before, so retrying with Spotify's own screen")
+                        handler.postDelayed({ connect(showAuth = true) }, 2_000)
+                    }
+                } else {
+                    scheduleRetry(RETRY_MS)
+                }
             }
         })
     }

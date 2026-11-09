@@ -77,16 +77,20 @@ fun StartupOverlay(
     onFinished: () -> Unit,
 ) {
     var t by remember { mutableFloatStateOf(0f) }
-    var handoff by remember { mutableFloatStateOf(HANDOFF) }
-    val locks = remember { arrayOfNulls<Float>(3) }
-    val arrivals = remember { HashMap<String, Float>() }
+    // Progress lives in [Run], not in this composable: Android can rebuild the whole screen during
+    // boot (seen 1.6 s after the first frame on a cold start) and the sequence must carry on, not restart.
+    var handoff by Run.handoff
+    val locks = Run.locks
+    val arrivals = Run.arrivals
     val events = rememberUpdatedState(Triple(carOk, gps.fix != null, spotifyOk))
     val values = rememberUpdatedState(readouts)
 
     LaunchedEffect(Unit) {
-        var handedOff = false
-        var usable = false
-        AppLog.info("startup", "Start-up sequence begins")
+        var handedOff = Run.handedOff
+        var usable = Run.usable
+        if (Boot.startupBegun) AppLog.info("startup", "Screen was rebuilt; continuing the start-up sequence")
+        else AppLog.info("startup", "Start-up sequence begins")
+        Boot.startupBegun = true
         // Timed from our first frame; if that mark is missing for any reason, from this effect's start,
         // so the sequence can never hold the screen.
         val ownStart = SystemClock.elapsedRealtime()
@@ -107,6 +111,7 @@ fun StartupOverlay(
             values.value.all().forEach { (k, v) -> if (v != null && k !in arrivals) arrivals[k] = t }
             if (!handedOff && t >= handoff) {
                 handedOff = true
+                Run.handedOff = true
                 val at = ff + (handoff * 1000).toLong()
                 Boot.handoffAt.value = at
                 if (locks[0] != null) targets.arcPulseAt = at + 600
@@ -124,6 +129,7 @@ fun StartupOverlay(
             }
             if (!usable && t >= handoff + 0.4f) {
                 usable = true
+                Run.usable = true
                 Boot.mark("Drive usable (start-up hand-off done)")
             }
             if (t >= handoff + 1.05f) break
@@ -241,6 +247,15 @@ data class StartupReadouts(
 }
 
 private const val HANDOFF = 3.0f
+
+/** The one start-up run of this app process (survives the screen being rebuilt). */
+private object Run {
+    val handoff = mutableFloatStateOf(HANDOFF)
+    val locks = arrayOfNulls<Float>(3)
+    val arrivals = HashMap<String, Float>()
+    var handedOff = false
+    var usable = false
+}
 private const val LOCK_DEADLINE = 2.6f
 private val BEATS = floatArrayOf(1.1f, 1.6f, 2.1f)
 private val NAMES = arrayOf("Car link", "GPS", "Spotify")
