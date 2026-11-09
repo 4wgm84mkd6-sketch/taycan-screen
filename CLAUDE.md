@@ -53,6 +53,11 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
 - The "High-voltage system not free of voltage" warning while an adapter is active is expected.
 
 ## UI rules
+- Design: Filament (`https://claude.ai/artifact/YJuGszWriE3gprMQmWfsDN`). The Drive screen is drawn in
+  design px (DriveScreen sets density so the 1602×720 board fits the window); copy sizes from the boards.
+- Start-up (StartupLockOn board): locks wait for real events; hand-off by 3.0 s so Drive takes touches
+  within 4 s of the first frame, always. Gauge sweep only on the first shift into D per app start.
+- No phone features: no driver detection, no iPhone pairing, no calls (owner, 2026-11-09).
 - The instrument cluster stays the official speedometer. Glanceable: large type, high contrast,
   no video.
 - The Porsche frame keeps its right column visible, so the app window is narrower than the full

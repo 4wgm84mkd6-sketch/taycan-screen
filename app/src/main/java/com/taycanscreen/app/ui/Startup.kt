@@ -87,10 +87,14 @@ fun StartupOverlay(
         var handedOff = false
         var usable = false
         AppLog.info("startup", "Start-up sequence begins")
+        // Timed from our first frame; if that mark is missing for any reason, from this effect's start,
+        // so the sequence can never hold the screen.
+        val ownStart = SystemClock.elapsedRealtime()
+        var ff = 0L
         while (true) {
             withFrameNanos { }
-            val ff = Boot.firstFrameAt
-            t = if (ff == 0L) 0f else (SystemClock.elapsedRealtime() - ff) / 1000f
+            ff = Boot.firstFrameAt.takeIf { it != 0L } ?: ownStart
+            t = (SystemClock.elapsedRealtime() - ff) / 1000f
             // Locks: on the real event, never before the beat, and only while the rings are still centre stage.
             val ev = events.value
             val ok = booleanArrayOf(ev.first, ev.second, ev.third)

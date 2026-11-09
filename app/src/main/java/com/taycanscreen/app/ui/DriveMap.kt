@@ -183,10 +183,9 @@ fun MapArea(
         else CarLocationOverlay(locationProvider(context), mapView, { headingUp.value }, ::carSpeedKmh, { _, loc, bearing ->
             if (gps.fix == null) {
                 Boot.mark("First GPS fix")
-                // Lock the reticle now if the start-up has already handed off (otherwise it locks on landing).
-                if (Boot.handoffAt.value != 0L && SystemClock.elapsedRealtime() > Boot.handoffAt.value + 700) {
-                    targets.acquireAt = SystemClock.elapsedRealtime()
-                }
+                // After the hand-off, lock the reticle on now (or when ring 2 lands, if it's still flying).
+                val h = Boot.handoffAt.value
+                if (h != 0L && targets.acquireAt == 0L) targets.acquireAt = maxOf(SystemClock.elapsedRealtime(), h + 700)
             }
             gps.fix = loc
             gps.heading = bearing
@@ -415,7 +414,7 @@ fun MapArea(
 
         MarkerLayer(c, gps, targets, locationGranted)
 
-        HeadingTape(gps.heading, c, Modifier.align(Alignment.TopCenter).padding(top = 14.dp))
+        HeadingTape(gps, c, Modifier.align(Alignment.TopCenter).padding(top = 14.dp))
 
         // Clock and outside temperature.
         var clock by remember { mutableLongStateOf(0L) }
@@ -450,22 +449,10 @@ fun MapArea(
                 Box(Modifier.padding(horizontal = 18.dp).width(36.dp).height(1.dp).background(c.border))
                 MapButton(FIcons.Minus, "Zoom out", c.text) { mapView.controller.zoomOut() }
             }
-            Column(
-                Modifier.size(72.dp).background(c.overlay, Filament.CutS).insetLine(c.border)
-                    .clickable {
-                        northUp = !northUp
-                        prefs.edit().putBoolean("north_up", northUp).apply()
-                        AppLog.info("map", if (northUp) "North up" else "Heading up")
-                    },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                // The compass needle points to north: up in north-up, turned with the map in heading-up.
-                Icon(
-                    FIcons.Compass, if (northUp) "North up (tap for heading up)" else "Heading up (tap for north up)",
-                    tint = c.accent, modifier = Modifier.size(26.dp).rotate(if (northUp) 0f else gps.mapOrientation),
-                )
-                BasicText(if (northUp) "N UP" else "HDG", Modifier.padding(top = 2.dp), style = Filament.label(12.sp, c.textDim, 0.08f))
+            NorthButton(northUp, gps, c) {
+                northUp = !northUp
+                prefs.edit().putBoolean("north_up", northUp).apply()
+                AppLog.info("map", if (northUp) "North up" else "Heading up")
             }
             Box(Modifier.background(c.overlay, Filament.CutS).insetLine(c.border)) {
                 MapButton(FIcons.Recenter, "Recenter", c.text) {
@@ -477,24 +464,7 @@ fun MapArea(
             }
         }
 
-        Row(
-            Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 16.dp).height(40.dp)
-                .background(c.overlay, Filament.CutS).insetLine(c.border).padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(FIcons.Gps, null, tint = if (gps.fix != null) c.accent else c.textFaint, modifier = Modifier.size(18.dp))
-            BasicText(
-                when {
-                    !locationGranted -> "GPS · NO PERMISSION"
-                    gps.fix == null -> "GPS SEARCHING"
-                    else -> "GPS ±${gps.fix?.accuracy?.roundToInt() ?: 0} m"
-                },
-                style = Filament.label(14.sp, c.textDim, 0f),
-            )
-            Box(Modifier.width(1.dp).height(16.dp).background(c.border))
-            BasicText("${gps.usedSats}/${gps.seenSats} SAT", style = Filament.label(14.sp, c.textDim, 0f))
-        }
+        GpsChip(gps, locationGranted, c, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 16.dp))
 
         BasicText(
             "© OpenStreetMap contributors",
@@ -510,6 +480,44 @@ fun MapArea(
                 style = Filament.text(16.sp, 500, c.text),
             )
         }
+    }
+}
+
+@Composable
+private fun NorthButton(northUp: Boolean, gps: GpsInfo, c: DriveColors, onToggle: () -> Unit) {
+    Column(
+        Modifier.size(72.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable(onClick = onToggle),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        // The compass needle points to north: up in north-up, turned with the map in heading-up.
+        Icon(
+            FIcons.Compass, if (northUp) "North up (tap for heading up)" else "Heading up (tap for north up)",
+            tint = c.accent, modifier = Modifier.size(26.dp).rotate(if (northUp) 0f else gps.mapOrientation),
+        )
+        BasicText(if (northUp) "N UP" else "HDG", Modifier.padding(top = 2.dp), style = Filament.label(12.sp, c.textDim, 0.08f))
+    }
+}
+
+@Composable
+private fun GpsChip(gps: GpsInfo, locationGranted: Boolean, c: DriveColors, modifier: Modifier) {
+    val fix = gps.fix
+    Row(
+        modifier.height(40.dp).background(c.overlay, Filament.CutS).insetLine(c.border).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(FIcons.Gps, null, tint = if (fix != null) c.accent else c.textFaint, modifier = Modifier.size(18.dp))
+        BasicText(
+            when {
+                !locationGranted -> "GPS · NO PERMISSION"
+                fix == null -> "GPS SEARCHING"
+                else -> "GPS ±${fix.accuracy.roundToInt()} m"
+            },
+            style = Filament.label(14.sp, c.textDim, 0f),
+        )
+        Box(Modifier.width(1.dp).height(16.dp).background(c.border))
+        BasicText("${gps.usedSats}/${gps.seenSats} SAT", style = Filament.label(14.sp, c.textDim, 0f))
     }
 }
 
@@ -533,12 +541,6 @@ fun Modifier.insetLine(color: Color) = this.drawWithContent {
  */
 @Composable
 private fun MarkerLayer(c: DriveColors, gps: GpsInfo, targets: DriveTargets, locationGranted: Boolean) {
-    val spin by rememberInfiniteTransition(label = "reticle").animateFloat(
-        0f, 360f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "spin",
-    )
-    val blink by rememberInfiniteTransition(label = "blink").animateFloat(
-        0.35f, 1f, infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse), label = "blink",
-    )
     val handoff by Boot.handoffAt.collectAsState()
     // Seconds since the lock-on started (null outside it).
     var acquireT by remember { mutableStateOf<Float?>(null) }
@@ -555,6 +557,17 @@ private fun MarkerLayer(c: DriveColors, gps: GpsInfo, targets: DriveTargets, loc
     }
     val searching = locationGranted && gps.fix == null && handoff != 0L
     if (!searching && acquireT == null) return
+    ReticleLayer(c, gps, targets, searching, acquireT)
+}
+
+@Composable
+private fun ReticleLayer(c: DriveColors, gps: GpsInfo, targets: DriveTargets, searching: Boolean, acquireT: Float?) {
+    val spin by rememberInfiniteTransition(label = "reticle").animateFloat(
+        0f, 360f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "spin",
+    )
+    val blink by rememberInfiniteTransition(label = "blink").animateFloat(
+        0.35f, 1f, infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse), label = "blink",
+    )
     val fix = gps.fix
     Box(
         Modifier.size(200.dp).offset {
@@ -643,7 +656,8 @@ private inline fun DrawScope.scaleAround(s: Float, pivot: Offset, block: DrawSco
 
 /** Compass tape across the top of the map: heading readout and a ±50° strip (Filament Main). */
 @Composable
-private fun HeadingTape(heading: Float?, c: DriveColors, modifier: Modifier) {
+private fun HeadingTape(gps: GpsInfo, c: DriveColors, modifier: Modifier) {
+    val heading = gps.heading
     val h = ((heading ?: 0f).roundToInt() % 360 + 360) % 360
     val known = heading != null
     Column(modifier.width(440.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
