@@ -55,6 +55,11 @@ class TaycanDecodeTest {
         check(Taycan.SPEED_DIR, "7E80562115B24AC", 146.6875)     // 2024
     }
 
+    @Test fun outsideTemperature() {
+        check(Taycan.OUTSIDE, "7B005622609005F", 9.5)   // 2025
+        check(Taycan.OUTSIDE, "7B00562260900B4", 18.0)  // 2025
+    }
+
     @Test fun speed() {
         check(Taycan.SPEED, "7E80462F40D00", 0.0)
         check(Taycan.SPEED, "7E80462F40DB9", 185.0)                 // 2025

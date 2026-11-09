@@ -104,7 +104,7 @@ private data class VehicleValues(
                 soc = r.v(Taycan.SOC_DISPLAY, now),
                 speedMph = (r.v(Taycan.SPEED_DIR, now) ?: r.v(Taycan.SPEED, now))?.let { V(kotlin.math.abs(it.x) * 0.621371, it.dim) },
                 rangeMi = r.v(Taycan.RANGE, now),
-                outsideF = r.v(Taycan.AMBIENT, now)?.let { V(cToF(it.x), it.dim) },
+                outsideF = r.v(Taycan.OUTSIDE, now)?.let { V(cToF(it.x), it.dim) },
                 volts = volts,
                 kw = if (volts != null && amps != null) V(volts.x * amps.x / 1000.0, volts.dim || amps.dim) else null,
                 packMinC = r.v(Taycan.PACK_T_MIN, now),

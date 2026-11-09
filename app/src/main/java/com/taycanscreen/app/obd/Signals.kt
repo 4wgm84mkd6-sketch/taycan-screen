@@ -63,6 +63,7 @@ object Taycan {
     private val ENG_GEAR = ObdCommand("7E0", "7E8", "0884", extendedSession = false)
     private val ENG_AAT = ObdCommand("7E0", "7E8", "1004", extendedSession = false)
     private val ENG_VSS_DIR = ObdCommand("7E0", "7E8", "115B", extendedSession = false)
+    private val HVAC_OUTSIDE = ObdCommand("746", "7B0", "2609", extendedSession = false, flowControl = true)
     private val GW_RANGE = ObdCommand("710", "77A", "2AB6", extendedSession = false, flowControl = true)
     private val GW_12V_CAP = ObdCommand("710", "77A", "2A06", extendedSession = false, flowControl = true)
     private val GW_12V_VOLT = ObdCommand("710", "77A", "2A07", extendedSession = false, flowControl = true)
@@ -110,6 +111,12 @@ object Taycan {
         else -> null
     }
 
+    /**
+     * Outside temperature from the climate module (OBDb TAYCAN_HVAC_OUTSIDE_T). Shown on the Drive
+     * screen. 7E0 1004 (AMBIENT below) answers 0 on every Taycan in OBDb's recordings and on ours.
+     */
+    val OUTSIDE = Signal("TAYCAN_HVAC_OUTSIDE_T", "Outside temperature (climate)", HVAC_OUTSIDE,
+        len = 16, div = 10.0, signed = true, unit = "°C", pollEvery = 10)
     val AMBIENT = Signal("TAYCAN_AAT", "Ambient temperature", ENG_AAT,
         len = 16, div = 128.0, signed = true, unit = "°C", pollEvery = 10)
     /** OBDb unit: miles (range remaining as the car displays it). */
@@ -131,10 +138,11 @@ object Taycan {
 
     /** Polled in this order; grouped by module so the header changes as little as possible. */
     val POLLED = listOf(
-        SPEED_DIR, SOC_DISPLAY, GEAR, SPEED, AMBIENT,
+        SPEED_DIR, SOC_DISPLAY, GEAR, SPEED,
         HV_VOLTAGE, HV_VOLTAGE_1818, HV_CURRENT, PACK_T_MAX, PACK_T_MIN,
         SPEED_DIR, // again mid-cycle, so speed refreshes about twice as often
         RANGE, LV_VOLTAGE, LV_SOC, LV_CHARGE, LV_CAPACITY, LV_RESISTANCE,
+        OUTSIDE,
     )
 
     /** Speed for display (km/h, ≥ 0): directional speed if fresh, else F40D; null if neither is. */
