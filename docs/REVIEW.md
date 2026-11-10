@@ -156,15 +156,20 @@ CI so changes are seen before the car), then in the car.
 - Setup split into "Updates & logs" and "Diagnostics".
 - Unused code removed.
 
-## Decisions for the owner
+## Decisions (answered by the owner, 2026-11-10)
 
-These change something you chose or approved, so they wait for your answer:
+1. **Dock labels:** no. Icons only.
+2. **Speed locks:** none. Every feature must work at any speed. The EQ sliders stay usable, Spotify
+   search is not locked, and the lock on destination typing above 5 mph is removed.
 
-1. **Dock.** Add small labels under the icons (MAP, MUSIC, SOUND, ENERGY, DAY/NIGHT, SETUP)? The dock
-   height you chose stays.
-2. **EQ while moving.** Above 5 mph, allow presets and the speed-adaptive switch but lock the ten
-   sliders?
-3. **Spotify search while moving.** Lock typing above 5 mph, as destination search already does?
-   (Recommended; browsing lists and Up First stay available.)
+Consequences for this review: the "typing while moving" findings under Driving safety are closed by
+the owner's decision and are not counted as open issues. Two safety points remain and are kept:
+nothing opens by itself while the car is moving (Spotify's permission screen), and Spotify search
+uses the large keyboard instead of the box's small one.
 
-Everything else in the plan keeps your decisions as recorded in CLAUDE.md and HANDOFF.md.
+## Status
+
+- Build 158 = Build A, released.
+- Build B and Build C are written and checked on the build server (compile, unit tests, and pictures
+  of the screens), each on its own branch. They are released one at a time after the previous build
+  has been driven, so a problem can be traced to one build.
