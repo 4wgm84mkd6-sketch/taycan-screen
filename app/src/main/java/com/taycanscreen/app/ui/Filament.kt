@@ -140,6 +140,8 @@ object FIcons {
     val TurnSharpLeft = stroke("t-shleft", 2.4f, "M17 21V6L6 17 M6 10v7h7")
     val UTurn = stroke("t-uturn", 2.4f, "M16 21V9a4 4 0 0 0-8 0v8 M4 13l4 4 4-4")
     val Roundabout = stroke("t-round", 2.4f, "M12 21v-6 M12 15a4 4 0 1 1 4-4 M16 11V6 M13 8l3-3 3 3")
+    val ChevronLeft = stroke("chev-left", 1.8f, "M15 5l-7 7 7 7")
+    val ChevronRight = stroke("chev-right", 1.8f, "M9 5l7 7-7 7")
     val Play = filled("play", "M7 4.5v15L19.5 12z")
     val Pause = filled("pause", "M6.5 4.5h4v15h-4z M13.5 4.5h4v15h-4z")
 }

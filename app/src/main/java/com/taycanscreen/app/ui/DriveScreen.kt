@@ -362,21 +362,18 @@ private fun DriveContent(
                     ) {
                         LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = Modifier)
                     }
+                    // Music and Sound are drawn in design px like everything else on this screen.
                     Appear(panel == "music") {
-                        CompositionLocalProvider(LocalDensity provides realDensity) {
-                            MusicPanel(
-                                c,
-                                onClose = { panel = null },
-                                onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
-                                modifier = Modifier.fillMaxSize(),
-                                onViewChange = { musicView = it },
-                            )
-                        }
+                        MusicPanel(
+                            c,
+                            onClose = { panel = null },
+                            onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
+                            modifier = Modifier.fillMaxSize(),
+                            onViewChange = { musicView = it },
+                        )
                     }
                     Appear(panel == "audio") {
-                        CompositionLocalProvider(LocalDensity provides realDensity) {
-                            AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
-                        }
+                        AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
                     }
                 }
                 V3Dock(
@@ -751,8 +748,9 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
     }
 }
 
+/** Round player control: thin ring, accent ring and icon for the main one. Shared with the Music panel. */
 @Composable
-private fun RoundButton(icon: ImageVector, label: String, c: DriveColors, size: Int, primary: Boolean, onClick: () -> Unit) {
+internal fun RoundButton(icon: ImageVector, label: String, c: DriveColors, size: Int, primary: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(size.dp).clip(CircleShape).border(1.dp, if (primary) c.accentLine else c.border, CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
