@@ -36,24 +36,26 @@ class ElmConnection private constructor(
         fun isAllowed(cmd: String): Boolean = ALLOWED.any { it.matches(cmd) }
 
         /**
-         * Connects to the adapter. [channelFirst]: try RFCOMM channel 1 directly before the standard
-         * service lookup (on this MX+ the lookup always fails after ~4.5 s). [onMethod] reports which
-         * method worked so the caller can try it first next time.
+         * Connects to the adapter with ONE method: RFCOMM channel 1 directly ([channel1]) or the
+         * standard service lookup. The caller alternates between them after a failure; trying both in
+         * one go made every failed attempt cost 10–15 s. A socket that fails to connect is closed
+         * (they used to be left open, two per failed attempt).
          */
         @SuppressLint("MissingPermission")
-        fun open(device: BluetoothDevice, channelFirst: Boolean, onMethod: (channel1: Boolean) -> Unit): ElmConnection {
-            AppLog.info(TAG, "Connecting to ${device.name} (${device.address})${if (channelFirst) " via channel 1" else ""}")
-            fun standard() = device.createRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
-            fun channel1(): BluetoothSocket {
-                // Common fallback for SPP adapters whose SDP record isn't found.
+        fun open(device: BluetoothDevice, channel1: Boolean): ElmConnection {
+            AppLog.info(TAG, "Connecting to ${device.name} (${device.address}) via ${if (channel1) "channel 1" else "the standard lookup"}")
+            val socket: BluetoothSocket = if (channel1) {
+                // Common route for SPP adapters whose SDP record isn't found.
                 val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                return (m.invoke(device, 1) as BluetoothSocket).also { it.connect() }
+                m.invoke(device, 1) as BluetoothSocket
+            } else {
+                device.createRfcommSocketToServiceRecord(SPP_UUID)
             }
-            val socket = try {
-                if (channelFirst) channel1().also { onMethod(true) } else standard().also { onMethod(false) }
-            } catch (first: Exception) {
-                AppLog.warn(TAG, "${if (channelFirst) "Channel 1" else "Standard"} connect failed (${first.message}); trying the other way")
-                if (channelFirst) standard().also { onMethod(false) } else channel1().also { onMethod(true) }
+            try {
+                socket.connect()
+            } catch (e: Exception) {
+                runCatching { socket.close() }
+                throw e
             }
             AppLog.info(TAG, "Bluetooth connected")
             return ElmConnection(socket, socket.inputStream, socket.outputStream)
@@ -101,8 +103,9 @@ class ElmConnection private constructor(
     private fun readUntilPrompt(timeoutMs: Long): String {
         val sb = StringBuilder()
         val buf = ByteArray(256)
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
+        // Monotonic clock: the box's date clock jumps when it syncs, which used to end this wait at once.
+        val deadline = com.taycanscreen.app.util.Mono.ms() + timeoutMs
+        while (com.taycanscreen.app.util.Mono.ms() < deadline) {
             val avail = input.available()
             if (avail > 0) {
                 val n = input.read(buf, 0, minOf(avail, buf.size))

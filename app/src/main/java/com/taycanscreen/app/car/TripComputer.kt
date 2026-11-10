@@ -9,6 +9,7 @@ import com.taycanscreen.app.obd.ObdEngine
 import com.taycanscreen.app.obd.Reading
 import com.taycanscreen.app.obd.Signal
 import com.taycanscreen.app.obd.Taycan
+import com.taycanscreen.app.util.Mono
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -90,33 +91,72 @@ object TripComputer {
         } ?: emptyList()
         prefs.getString("current", null)?.let { json ->
             runCatching { gson.fromJson(json, Trip::class.java) }.getOrNull()?.let { t ->
-                if (System.currentTimeMillis() - t.lastAt > NEW_TRIP_AFTER_MS) finish(t) else _trip.value = t
+                val gap = System.currentTimeMillis() - t.lastAt
+                when {
+                    // The box's date is still wrong (it starts in 2025 until it syncs): decide once it's right.
+                    gap < 0 -> saved = t
+                    gap > NEW_TRIP_AFTER_MS -> finish(t)
+                    else -> _trip.value = t
+                }
             }
         }
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch { loop() }
     }
 
+    /** The trip saved before the box last lost power, held until the date clock can be trusted. */
+    private var saved: Trip? = null
+
+    /** A short stop (under 15 min): the drive before it and the one after are one trip. */
+    private fun join(before: Trip, t: Trip?): Trip = if (t == null) before else t.copy(
+        startedAt = before.startedAt, distanceMi = before.distanceMi + t.distanceMi,
+        usedKWh = before.usedKWh + t.usedKWh, recoveredKWh = before.recoveredKWh + t.recoveredKWh,
+        socStart = before.socStart ?: t.socStart,
+    )
+
     private fun fresh(r: Map<String, Reading>, sig: Signal, now: Long): Double? =
         r[sig.id]?.takeIf { now - it.at <= sig.staleMs }?.value
 
     private suspend fun loop() {
-        var last = System.currentTimeMillis()
+        // Two clocks: [mono] measures elapsed time and the age of readings; [now] is the date, only for
+        // the times shown in the ledger. The box's date jumps (2025 → today) when it syncs, mid-drive.
+        var lastMono = Mono.ms()
+        var lastWall = System.currentTimeMillis()
         var votes = 0
         var lastSave = 0L
         var lastSample = 0L
         while (true) {
             delay(1_000)
+            val mono = Mono.ms()
             val now = System.currentTimeMillis()
-            val dt = ((now - last) / 1000.0).coerceIn(0.0, 3.0)
-            last = now
+            val dt = ((mono - lastMono) / 1000.0).coerceIn(0.0, 3.0)
+            val jump = (now - lastWall) - (mono - lastMono)
+            lastMono = mono
+            lastWall = now
+            if (abs(jump) > 30_000) {
+                // The date was corrected: move the running trip's times with it instead of ending the trip.
+                AppLog.info(TAG, "The box's clock moved by ${jump / 1000} s; trip times adjusted")
+                _trip.value = _trip.value?.let { it.copy(startedAt = it.startedAt + jump, lastAt = it.lastAt + jump) }
+                _charge.value = _charge.value?.let { it.copy(startedAt = it.startedAt + jump, lastAt = it.lastAt + jump) }
+            }
+            saved?.let { s ->
+                val gap = now - s.lastAt
+                if (gap >= 0) {
+                    saved = null
+                    if (gap > NEW_TRIP_AFTER_MS) finish(s, keepCurrent = true)
+                    else {
+                        AppLog.info(TAG, "Short stop (${gap / 60_000} min): carrying on with the same trip")
+                        _trip.value = join(s, _trip.value)
+                    }
+                }
+            }
             val r = ObdEngine.readings.value
             val state = ObdEngine.status.value.state
-            val speed = Taycan.speedKmh(r, now)
-            val volts = fresh(r, Taycan.HV_VOLTAGE_1818, now)?.takeIf { it > 0 } ?: fresh(r, Taycan.HV_VOLTAGE, now)?.takeIf { it > 0 }
-            val amps = fresh(r, Taycan.HV_CURRENT, now)
+            val speed = Taycan.speedKmh(r, mono)
+            val volts = fresh(r, Taycan.HV_VOLTAGE_1818, mono)?.takeIf { it > 0 } ?: fresh(r, Taycan.HV_VOLTAGE, mono)?.takeIf { it > 0 }
+            val amps = fresh(r, Taycan.HV_CURRENT, mono)
             val kw = if (volts != null && amps != null) volts * amps / 1000.0 else null // negative = draw
-            val gear = Taycan.gearLetter(fresh(r, Taycan.GEAR, now))
-            val soc = fresh(r, Taycan.SOC_DISPLAY, now)
+            val gear = Taycan.gearLetter(fresh(r, Taycan.GEAR, mono))
+            val soc = fresh(r, Taycan.SOC_DISPLAY, mono)
 
             // Charging: parked and energy flowing in.
             val parked = gear == "P" || (gear == null && (speed ?: 99.0) < 0.5)
@@ -135,9 +175,9 @@ object TripComputer {
             if (_charging.value && kw != null) {
                 val c = _charge.value?.takeIf { it.active } ?: Charge(now, now, true, soc, soc, 0.0, kw, emptyList(), null)
                 val energy = c.energyKWh + kw.coerceAtLeast(0.0) * dt / 3600.0
-                val samples = if (now - lastSample >= 10_000) {
-                    lastSample = now
-                    (c.samples + (now to kw.toFloat())).takeLast(2160)
+                val samples = if (mono - lastSample >= 10_000) {
+                    lastSample = mono
+                    (c.samples + (mono to kw.toFloat())).takeLast(2160)
                 } else c.samples
                 val rise = if (soc != null && c.socStart != null) soc - c.socStart else 0.0
                 _charge.value = c.copy(
@@ -170,14 +210,14 @@ object TripComputer {
             }
             t = t.copy(lastAt = now, distanceMi = dist, usedKWh = used, recoveredKWh = recovered, socNow = soc ?: t.socNow)
             _trip.value = t
-            if (now - lastSave > 30_000) {
-                lastSave = now
+            if (mono - lastSave > 30_000) {
+                lastSave = mono
                 app.getSharedPreferences("trips", Context.MODE_PRIVATE).edit().putString("current", gson.toJson(t)).apply()
             }
         }
     }
 
-    private fun finish(t: Trip) {
+    private fun finish(t: Trip, keepCurrent: Boolean = false) {
         val prefs = app.getSharedPreferences("trips", Context.MODE_PRIVATE)
         if (t.distanceMi >= MIN_SAVED_MI) {
             val list = (listOf(t) + _history.value).take(20)
@@ -186,6 +226,6 @@ object TripComputer {
             AppLog.info(TAG, "Trip saved: %.1f mi, used %.2f kWh, recovered %.2f kWh, %s mi/kWh, %d min".format(
                 t.distanceMi, t.usedKWh, t.recoveredKWh, t.miPerKWh?.let { "%.2f".format(it) } ?: "—", t.minutes))
         }
-        prefs.edit().remove("current").apply()
+        if (!keepCurrent) prefs.edit().remove("current").apply()
     }
 }

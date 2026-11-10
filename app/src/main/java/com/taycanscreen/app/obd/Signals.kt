@@ -40,11 +40,13 @@ data class Signal(
     val slots: Int = 1,
     /** Other OBDb signals decoded from the same reply (one request, several values). */
     val siblings: List<Signal> = emptyList(),
+    /** Hide the value sooner than the default (speed and gear must never linger). */
+    val staleAfterMs: Long? = null,
 ) {
     fun due(cycle: Long): Boolean = cycle % pollEvery == 0L && cycle % slots == slot.toLong()
 
     /** A reading older than this is shown as "—". */
-    val staleMs: Long get() = 5_000L * pollEvery
+    val staleMs: Long get() = staleAfterMs ?: (5_000L * pollEvery)
 
     /** Decodes [data] (bytes after 62 + DID). Null if too short or a "no data" value. */
     fun decode(data: ByteArray): Double? {
@@ -91,13 +93,13 @@ object Taycan {
     val SOC_DISPLAY = Signal("TAYCAN_HVBAT_SOC_DISP", "HV battery charge (displayed)", ENG_SOC_DISP,
         len = 16, div = 100.0, unit = "%")
     val SPEED = Signal("TAYCAN_VSS", "Vehicle speed", ENG_VSS,
-        len = 8, nullMax = 255.0, unit = "km/h")
+        len = 8, nullMax = 255.0, unit = "km/h", staleAfterMs = 3_000L)
     /**
      * OBDb "Vehicle speed (directional)": 1/64 km/h resolution (F40D is whole km/h only), negative in
      * reverse. Shown on the Drive screen and polled twice per cycle so the number keeps up.
      */
     val SPEED_DIR = Signal("TAYCAN_VSS_DIR", "Vehicle speed (directional)", ENG_VSS_DIR,
-        len = 16, div = 64.0, signed = true, unit = "km/h")
+        len = 16, div = 64.0, signed = true, unit = "km/h", staleAfterMs = 3_000L)
 
     val HV_VOLTAGE = Signal("TAYCAN_HVBAT_VOLT", "HV battery voltage", BMS_VOLT,
         len = 16, div = 10.0, unit = "V")
@@ -115,7 +117,7 @@ object Taycan {
      * Gear selector position, from discovery (not OBDb): 5 = P, 6 = R, 7 = N, 8 = D. Seen steady in each
      * gear and changing exactly at each shift; 7E0 22 0898 mirrors it as 8/7/6/5.
      */
-    val GEAR = Signal("DISC_GEAR", "Gear selector (discovered)", ENG_GEAR, len = 8, unit = "")
+    val GEAR = Signal("DISC_GEAR", "Gear selector (discovered)", ENG_GEAR, len = 8, unit = "", staleAfterMs = 4_000L)
 
     fun gearLetter(raw: Double?): String? = when (raw?.toInt()) {
         5 -> "P"
@@ -206,7 +208,7 @@ object Taycan {
     ) + TIRES
 
     /** Speed for display (km/h, ≥ 0): directional speed if fresh, else F40D; null if neither is. */
-    fun speedKmh(readings: Map<String, Reading>, now: Long = System.currentTimeMillis()): Double? {
+    fun speedKmh(readings: Map<String, Reading>, now: Long = com.taycanscreen.app.util.Mono.ms()): Double? {
         for (sig in listOf(SPEED_DIR, SPEED)) {
             val r = readings[sig.id] ?: continue
             val v = r.value ?: continue

@@ -81,8 +81,11 @@ object SpotifyWeb {
         val id = item.uri.substringAfterLast(':')
         return when (item.kind) {
             MusicItem.Kind.Playlist -> get("$API/playlists/$id/tracks?limit=50").optJSONArray("items").objects()
-                .mapNotNull { it.optJSONObject("track") }
-                .mapIndexed { i, t -> if (t.optString("type") == "episode") episode(t, item.uri, i) else track(t, item.uri, i) }
+                // Index first, then drop unavailable songs: the index is the song's place in the playlist
+                // (dropping first shifted every later song by one, so a tap played the wrong one).
+                .mapIndexedNotNull { i, row ->
+                    row.optJSONObject("track")?.let { t -> if (t.optString("type") == "episode") episode(t, item.uri, i) else track(t, item.uri, i) }
+                }
             MusicItem.Kind.Album -> {
                 val album = get("$API/albums/$id")
                 val img = image(album)

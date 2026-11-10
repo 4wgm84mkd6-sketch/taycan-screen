@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.asStateFlow
 object SpotifyController {
     private const val TAG = "spotify"
     private const val RETRY_MS = 15_000L
+    /** Spotify refusing an app it allowed before (cold start, clock not set, no internet yet): keep asking quietly. */
+    private const val AUTH_RETRY_MS = 20_000L
 
     enum class Link { NotSetUp, NotInstalled, NeedsSignIn, NeedsAuthorization, Connecting, Connected, Failed }
     data class Status(val link: Link, val detail: String = "")
@@ -53,6 +55,9 @@ object SpotifyController {
     private var remote: SpotifyAppRemote? = null
     private var connecting = false
     private var artUri: String? = null
+    /** The cover being fetched, so player updates don't start a second fetch of the same one. */
+    private var artLoading: String? = null
+    private var globalEqScheduled = false
     private val handler = Handler(Looper.getMainLooper())
     private val thumbs = LruCache<String, Bitmap>(80)
     private val retry = Runnable { connect(showAuth = false) }
@@ -105,7 +110,8 @@ object SpotifyController {
             connect(showAuth = false)
         } else {
             AppLog.warn(TAG, "Spotify authorization failed: $error")
-            _status.value = Status(Link.NeedsAuthorization, "Spotify said: $error")
+            // A lapsed search sign-in mustn't hide a player that is connected and working.
+            if (remote?.isConnected != true) _status.value = Status(Link.NeedsAuthorization, "Spotify needs your OK. Tap Allow.")
         }
     }
 
@@ -115,14 +121,19 @@ object SpotifyController {
 
     private fun connect(showAuth: Boolean) {
         if (!configured) {
-            _status.value = Status(Link.NotSetUp, "Spotify isn't set up in this build yet")
+            _status.value = Status(Link.NotSetUp, "Spotify isn't available in this version")
             return
         }
         if (!SpotifyAppRemote.isSpotifyInstalled(appContext)) {
             _status.value = Status(Link.NotInstalled, "Install Spotify on the box and sign in")
             return
         }
-        if (connecting || remote?.isConnected == true) return
+        if (remote?.isConnected == true) {
+            _status.value = Status(Link.Connected)
+            return
+        }
+        if (connecting) return
+        drop()
         connecting = true
         _status.value = Status(Link.Connecting, "Connecting to Spotify…")
         val params = ConnectionParams.Builder(BuildConfig.SPOTIFY_CLIENT_ID)
@@ -142,7 +153,7 @@ object SpotifyController {
 
             override fun onFailure(error: Throwable) {
                 connecting = false
-                remote = null
+                drop()
                 val name = error.javaClass.simpleName
                 AppLog.warn(TAG, "Spotify connect failed: $name: ${error.message}")
                 val msg = (error.message ?: "").lowercase()
@@ -152,19 +163,28 @@ object SpotifyController {
                     name == "UserNotAuthorizedException" || "authorization" in msg ->
                         Status(Link.NeedsAuthorization, "Tap Allow to let Taycan Screen use Spotify")
                     name == "CouldNotFindSpotifyApp" -> Status(Link.NotInstalled, "Install Spotify on the box and sign in")
-                    else -> Status(Link.Failed, "Couldn't reach Spotify ($name)")
+                    else -> Status(Link.Failed, "Spotify isn't responding. Trying again…")
                 }
                 // Spotify sometimes asks again for an app the owner already allowed (seen after a cold
                 // start). Its own screen passes an already-allowed app straight through, so show it
                 // automatically (at most every 10 minutes, and only with internet).
                 if (_status.value.link == Link.NeedsAuthorization) {
-                    val now = System.currentTimeMillis()
-                    if (authorizedBefore() && com.taycanscreen.app.net.NetMonitor.online.value && now - lastAutoAuthAt > 600_000) {
+                    val now = com.taycanscreen.app.util.Mono.ms()
+                    // Never put Spotify's screen in front of the driver: only while the car is known to be standing.
+                    val standing = com.taycanscreen.app.obd.Taycan.speedKmh(com.taycanscreen.app.obd.ObdEngine.readings.value)?.let { it < 1.0 } == true
+                    if (authorizedBefore() && standing && com.taycanscreen.app.net.NetMonitor.online.value &&
+                        (lastAutoAuthAt == 0L || now - lastAutoAuthAt > 600_000)
+                    ) {
                         lastAutoAuthAt = now
-                        AppLog.info(TAG, "Spotify asks to allow the app again; it was allowed before, so retrying with Spotify's own screen")
+                        AppLog.info(TAG, "Spotify asks to allow the app again; it was allowed before and the car is standing, so retrying with Spotify's own screen")
                         handler.postDelayed({ connect(showAuth = true) }, 2_000)
+                    } else if (authorizedBefore()) {
+                        // After a cold start Spotify refused three times out of three and nothing tried
+                        // again. Keep asking quietly; it comes good once Spotify itself is online.
+                        _status.value = Status(Link.Connecting, "Connecting to Spotify…")
+                        scheduleRetry(AUTH_RETRY_MS)
                     }
-                } else {
+                } else if (_status.value.link != Link.NotInstalled) {
                     scheduleRetry(RETRY_MS)
                 }
             }
@@ -176,8 +196,8 @@ object SpotifyController {
             .setEventCallback { ps ->
                 val t = ps.track
                 // If Spotify plays but never announced its audio session, fall back to the global EQ.
-                if (!ps.isPaused) {
-                    com.taycanscreen.app.audio.EqEngine.scanPlayback(appContext)
+                if (!ps.isPaused && !globalEqScheduled) {
+                    globalEqScheduled = true
                     handler.postDelayed({ com.taycanscreen.app.audio.EqEngine.tryGlobal() }, 15_000L)
                 }
                 _nowPlaying.value = if (t == null) null else NowPlaying(
@@ -187,25 +207,32 @@ object SpotifyController {
                     paused = ps.isPaused,
                     durationMs = t.duration,
                     positionMs = ps.playbackPosition,
-                    positionAt = System.currentTimeMillis(),
+                    positionAt = com.taycanscreen.app.util.Mono.ms(),
                     imageUri = t.imageUri,
                 )
                 val uri = t?.imageUri
                 if (uri == null) {
                     artUri = null
                     _artwork.value = null
-                } else if (uri.raw != artUri || _artwork.value == null) {
+                } else if (uri.raw != artUri || (_artwork.value == null && artLoading != uri.raw)) {
                     artUri = uri.raw
+                    artLoading = uri.raw
                     _artwork.value = null // don't show the previous song's cover meanwhile
                     loadArtwork(r, uri, attempt = 1)
                 }
             }
             .setErrorCallback { e ->
                 AppLog.warn(TAG, "Spotify player updates stopped: ${e.message}; reconnecting")
-                remote = null
-                _status.value = Status(Link.Failed, "Spotify disconnected")
+                drop()
+                _status.value = Status(Link.Failed, "Spotify isn't responding. Trying again…")
                 scheduleRetry(3_000L)
             }
+    }
+
+    /** Lets go of the Spotify link properly (it used to be forgotten while still open). */
+    private fun drop() {
+        remote?.let { r -> runCatching { SpotifyAppRemote.disconnect(r) } }
+        remote = null
     }
 
     /** Cover art for the current track, retried a few times (the image call can fail while Spotify is busy). */
@@ -213,20 +240,24 @@ object SpotifyController {
         r.imagesApi.getImage(uri, Image.Dimension.LARGE)
             .setResultCallback { bmp ->
                 if (artUri == uri.raw) _artwork.value = bmp
+                if (artLoading == uri.raw) artLoading = null
             }
             .setErrorCallback { e ->
                 AppLog.warn(TAG, "Artwork failed (try $attempt): ${e.javaClass.simpleName}: ${e.message}")
                 if (attempt < 4 && artUri == uri.raw) {
-                    handler.postDelayed({ remote?.let { loadArtwork(it, uri, attempt + 1) } }, 1_500L * attempt)
+                    handler.postDelayed({ remote?.let { loadArtwork(it, uri, attempt + 1) } ?: run { artLoading = null } }, 1_500L * attempt)
+                } else if (artLoading == uri.raw) {
+                    artLoading = null
                 }
             }
     }
 
-    private fun withRemote(what: String, block: (SpotifyAppRemote) -> Unit) {
+    private fun withRemote(what: String, onFail: ((String) -> Unit)? = null, block: (SpotifyAppRemote) -> Unit) {
         val r = remote
         if (r == null || !r.isConnected) {
             AppLog.warn(TAG, "$what: not connected")
             retryNow()
+            onFail?.invoke("Spotify isn't connected yet. Try again in a moment.")
             return
         }
         block(r)
@@ -240,14 +271,14 @@ object SpotifyController {
     fun previous() = withRemote("previous") { it.playerApi.skipPrevious() }
 
     /** Spotify's own car-friendly starting points (recently played, playlists, made for you…). */
-    fun browseRoot(onResult: (List<ListItem>) -> Unit, onError: (String) -> Unit) = withRemote("browse") { r ->
+    fun browseRoot(onResult: (List<ListItem>) -> Unit, onError: (String) -> Unit) = withRemote("browse", onError) { r ->
         r.contentApi.getRecommendedContentItems(ContentApi.ContentType.AUTOMOTIVE)
             .setResultCallback { onResult(it.items?.toList().orEmpty()) }
             .setErrorCallback { onError(it.message ?: "Couldn't load Spotify") }
     }
 
     fun browseChildren(item: ListItem, onResult: (List<ListItem>) -> Unit, onError: (String) -> Unit) =
-        withRemote("browse ${item.title}") { r ->
+        withRemote("browse ${item.title}", onError) { r ->
             r.contentApi.getChildrenOfItem(item, 50, 0)
                 .setResultCallback { onResult(it.items?.toList().orEmpty()) }
                 .setErrorCallback { onError(it.message ?: "Couldn't load ${item.title}") }
@@ -279,12 +310,6 @@ object SpotifyController {
     fun browseChildren(item: MusicItem, onResult: (List<MusicItem>) -> Unit, onError: (String) -> Unit) {
         val li = item.listItem ?: return onResult(emptyList())
         browseChildren(li, { list -> onResult(list.map { MusicItem.from(it) }) }, onError)
-    }
-
-    fun play(item: ListItem) = withRemote("play ${item.title}") { r ->
-        AppLog.info(TAG, "Play ${item.title} (${item.uri})")
-        r.contentApi.playContentItem(item)
-            .setErrorCallback { AppLog.warn(TAG, "Play failed: ${it.message}") }
     }
 
     /** Small cover image for a list row; cached. */

@@ -169,6 +169,9 @@ object Nav {
     private var lastRerouteAt = 0L
     private var lastLatLon: LatLon? = null
     private var arrivedJob: Job? = null
+    /** A destination picked before the car's position was known; routed as soon as a fix arrives. */
+    private var pending: Place? = null
+    private var rerouteFailures = 0
 
     fun init(context: Context) {
         if (app != null) return
@@ -204,13 +207,24 @@ object Nav {
     /** Route from [from] (the car) to [place]; replaces any active route. */
     fun start(place: Place, from: LatLon?, reroute: Boolean = false) {
         if (from == null) {
-            _error.value = "Waiting for GPS: the route starts from the car's position."
+            // Don't lose the choice: the route starts by itself when GPS has the car's position.
+            pending = place
+            _error.value = null
+            _busy.value = "Waiting for GPS to start the route…"
+            AppLog.info(TAG, "No position yet: ${place.name} will be routed when GPS has a fix")
             return
         }
+        pending = null
         routeJob?.cancel()
+        if (!reroute) {
+            arrivedJob?.cancel()
+            arrivedJob = null
+            rerouteFailures = 0
+        }
         _error.value = null
         _busy.value = if (reroute) "Re-routing…" else "Finding a route…"
         routeJob = scope.launch {
+            val me = coroutineContext[Job]
             try {
                 val r = NavApi.route(from, LatLon(place.lat, place.lon))
                 val cum = RouteMath.cumulative(r.points)
@@ -230,14 +244,17 @@ object Nav {
                     ),
                 )
                 if (!reroute) remember(place)
+                rerouteFailures = 0
                 update(from)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 AppLog.warn(TAG, "Route failed: ${e.javaClass.simpleName}: ${e.message}")
-                _error.value = friendly(e)
+                // A failed re-route keeps the old route on screen and tries again later, quietly.
+                if (reroute) rerouteFailures++ else _error.value = friendly(e)
             } finally {
-                _busy.value = null
+                // Only the newest request may clear the "Finding a route…" note.
+                if (routeJob == me) _busy.value = null
             }
         }
     }
@@ -245,6 +262,8 @@ object Nav {
     fun stop() {
         routeJob?.cancel()
         arrivedJob?.cancel()
+        arrivedJob = null // or the next trip would never clear itself after arriving
+        pending = null
         _active.value?.let { AppLog.info(TAG, "Route to ${it.dest.name} ended") }
         _active.value = null
         _progress.value = null
@@ -255,6 +274,7 @@ object Nav {
     fun onLocation(lat: Double, lon: Double) {
         val p = LatLon(lat, lon)
         lastLatLon = p
+        pending?.let { start(it, p) }
         if (_active.value != null) update(p)
     }
 
@@ -294,7 +314,9 @@ object Nav {
         // Off the route for three fixes in a row: ask for a new route from here (at most every 20 s).
         offCount = if (off) offCount + 1 else 0
         val now = System.currentTimeMillis()
-        if (offCount >= 3 && now - lastRerouteAt > 20_000 && routeJob?.isActive != true) {
+        // After failures (no signal), wait longer each time: 20 s, 40 s, … up to 5 min.
+        val wait = minOf(300_000L, 20_000L * (1L shl rerouteFailures.coerceAtMost(4)))
+        if (offCount >= 3 && (now - lastRerouteAt > wait || now < lastRerouteAt) && routeJob?.isActive != true) {
             lastRerouteAt = now
             AppLog.info(TAG, "Off route by ${pr.offM.roundToInt()} m: re-routing")
             start(a.dest, p, reroute = true)
@@ -311,11 +333,7 @@ object Nav {
 
     fun friendly(e: Exception): String {
         val m = "${e.javaClass.simpleName} ${e.message}"
-        return when {
-            "UnknownHost" in m || "ConnectException" in m || "SocketTimeout" in m || "timeout" in m.lowercase() ->
-                "No internet right now. Search and routes need a connection."
-            "No route" in m || "NoRoute" in m -> "No driving route found to that place."
-            else -> "Couldn't get that (${e.message?.take(80) ?: e.javaClass.simpleName})"
-        }
+        return if ("No route" in m || "NoRoute" in m) "No driving route found to that place."
+        else com.taycanscreen.app.util.Friendly.net(e, "Couldn't reach the map service. Try again.")
     }
 }
