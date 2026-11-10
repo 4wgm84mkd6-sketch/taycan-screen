@@ -75,15 +75,18 @@ object EqEngine {
     data class Settings(val bands: List<Float>, val preset: String, val adaptive: Boolean)
     data class Status(val attachedTo: String?, val detail: String)
 
-    private val _settings = MutableStateFlow(Settings(PRESETS[3].bands!!, "night", true))
+    private val _settings = MutableStateFlow(Settings(PRESETS.first { it.id == "night" }.bands!!, "night", true))
     val settings: StateFlow<Settings> = _settings.asStateFlow()
-    private val _status = MutableStateFlow(Status(null, "Play something in Spotify to attach the equalizer"))
+    private val _status = MutableStateFlow(Status(null, WAITING))
     val status: StateFlow<Status> = _status.asStateFlow()
     private val _speedBoost = MutableStateFlow(0f)
     /** Current speed-adaptive bass boost in dB (0–3). */
     val speedBoost: StateFlow<Float> = _speedBoost.asStateFlow()
 
+    private const val WAITING = "Equalizer starts when music plays"
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private lateinit var app: Context
+    // Main thread only (attach, detach and apply all touch it).
     private val effects = HashMap<Int, DynamicsProcessing>() // audio session → effect
     private val sessionOwners = HashMap<Int, String>()
 
@@ -125,8 +128,10 @@ object EqEngine {
         }
     }
 
-    // Spotify's session number stays the same until Spotify or the box restarts, so remember it:
-    // after one of our updates (which restarts our app and drops the EQ) we attach again by ourselves.
+    // Spotify keeps one session number while a player lives and makes a new one each time it builds a
+    // new player (121 → 129 → 137 → 145 within minutes in the logs). After one of our updates we try the
+    // remembered number once; if that player is gone Android answers error -3, which is expected and
+    // handled quietly: the EQ attaches again by itself the next time Spotify starts playing.
     private fun bootCount(): Int =
         runCatching { android.provider.Settings.Global.getInt(app.contentResolver, android.provider.Settings.Global.BOOT_COUNT) }.getOrDefault(-1)
 
@@ -152,7 +157,7 @@ object EqEngine {
             return
         }
         AppLog.info(TAG, "Re-attaching to Spotify's audio session $session (remembered from this box start)")
-        attach(session, "com.spotify.music")
+        attach(session, "com.spotify.music", remembered = true)
     }
 
     /** Fallback: try the global output mix (session 0) so the EQ works even without announcements. */
@@ -165,8 +170,9 @@ object EqEngine {
         attach(0, "all audio")
     }
 
-    private fun attach(session: Int, owner: String) {
+    private fun attach(session: Int, owner: String, remembered: Boolean = false) {
         if (effects.containsKey(session)) return
+        var created: DynamicsProcessing? = null
         try {
             val cfg = DynamicsProcessing.Config.Builder(
                 DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
@@ -177,6 +183,7 @@ object EqEngine {
                 true, // limiter: catches peaks so boosts can stay audible
             ).build()
             val dp = DynamicsProcessing(0, session, cfg)
+            created = dp
             dp.setLimiterAllChannelsTo(
                 DynamicsProcessing.Limiter(true, true, 0, 1f, 60f, 10f, -1f, 0f),
             )
@@ -190,15 +197,22 @@ object EqEngine {
             if (owner == "com.spotify.music" && session > 0) rememberSession(session)
             _status.value = Status(if (session == 0) "All audio" else ownerLabel(owner), "Equalizer active")
         } catch (e: Exception) {
-            AppLog.warn(TAG, "Couldn't attach to session $session ($owner): ${e.javaClass.simpleName}: ${e.message}")
-            if (effects.isEmpty()) _status.value = Status(null, "Couldn't attach to ${ownerLabel(owner)} (${e.javaClass.simpleName})")
+            effects.remove(session)
+            created?.let { runCatching { it.release() } }
+            if (remembered) {
+                AppLog.info(TAG, "Spotify's earlier audio session $session is gone (${e.message}); waiting for it to start playing")
+                forgetSession()
+            } else {
+                AppLog.warn(TAG, "Couldn't attach to session $session ($owner): ${e.javaClass.simpleName}: ${e.message}")
+            }
+            if (effects.isEmpty()) _status.value = Status(null, WAITING)
         }
     }
 
     private fun detach(session: Int) {
         effects.remove(session)?.let { runCatching { it.release() } }
         sessionOwners.remove(session)
-        if (effects.isEmpty()) _status.value = Status(null, "Play something in Spotify to attach the equalizer")
+        if (effects.isEmpty()) _status.value = Status(null, WAITING)
     }
 
     private fun ownerLabel(pkg: String) = when (pkg) {
@@ -231,6 +245,11 @@ object EqEngine {
 
     /** Called with the car's speed; above 45 mph adds up to +3 dB of bass by 75 mph (road noise). */
     fun onSpeed(mph: Double?) {
+        // Comes from the car-data thread; the effects belong to the main thread.
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            main.post { onSpeed(mph) }
+            return
+        }
         val boost = if (_settings.value.adaptive && mph != null) (((mph - 45) / 30).coerceIn(0.0, 1.0) * 3).toFloat() else 0f
         if (kotlin.math.abs(boost - _speedBoost.value) >= 0.25f || (boost == 0f && _speedBoost.value != 0f)) {
             _speedBoost.value = boost

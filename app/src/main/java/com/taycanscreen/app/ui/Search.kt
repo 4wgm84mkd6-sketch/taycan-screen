@@ -149,7 +149,7 @@ fun SearchPanel(
                         when {
                             showRecents -> if (recents.isEmpty()) "TYPE A PLACE OR ADDRESS" else "RECENT"
                             searching -> "SEARCHING…"
-                            results.isEmpty() -> "NO MATCHES YET"
+                            results.isEmpty() -> "NO MATCHES"
                             else -> "RESULTS"
                         },
                         Modifier.padding(start = 4.dp, bottom = 2.dp),

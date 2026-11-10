@@ -197,7 +197,7 @@ class MainActivity : ComponentActivity() {
                             if (!LogSharer.share(this)) toast("No log file yet")
                         } catch (e: Exception) {
                             AppLog.error("log", "Share failed", e)
-                            toast("Share failed: ${e.message}")
+                            toast("Couldn't share the log")
                         }
                     },
                     onChooseHomeApp = { openSafely(Intent(Settings.ACTION_HOME_SETTINGS), "home app setting") },
@@ -207,7 +207,7 @@ class MainActivity : ComponentActivity() {
                             startActivity(updates.updater.installPermissionIntent())
                         } catch (e: Exception) {
                             AppLog.error("update", "Couldn't open install setting", e)
-                            toast("Couldn't open Settings: ${e.message}")
+                            toast("Couldn't open Settings on this box")
                         }
                     },
                 )
@@ -232,11 +232,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        com.taycanscreen.app.log.FrameStats.stop()
         com.taycanscreen.app.log.Screenshots.attach(null)
     }
 
     override fun onResume() {
         super.onResume()
+        com.taycanscreen.app.log.FrameStats.start()
         com.taycanscreen.app.log.Screenshots.attach(this)
         updates.onResume()
         refreshLocation()
@@ -457,7 +459,7 @@ private fun SendLogPanel() {
                 result = "Signed in. You can send logs now."
             } catch (e: Exception) {
                 AppLog.error("log", "GitHub sign-in failed", e)
-                result = "Sign-in failed: ${e.message}"
+                result = com.taycanscreen.app.util.Friendly.net(e, "Sign-in didn't finish. Tap Sign in to GitHub to try again.")
             } finally {
                 code = null
                 busy = false
@@ -530,12 +532,16 @@ private fun UpdatePanel(updates: UpdateViewModel, onOpenInstallSetting: () -> Un
                     trackColor = Palette.SurfaceHigh,
                 )
             }
-            UpdateState.Installing -> StatusText(installResult ?: "Installing…")
+            UpdateState.Installing -> {
+                StatusText(installResult ?: "Installing…")
+                // Android has answered (confirm, or a failure): never leave the panel without a way on.
+                if (installResult != null) BigButton("Check for update") { updates.check() }
+            }
             else -> {
                 when (s) {
                     UpdateState.Checking -> StatusText("Checking…")
                     is UpdateState.UpToDate -> StatusText("Up to date (latest is build ${s.latest}).", Palette.Accent)
-                    is UpdateState.Failed -> StatusText("Couldn't update: ${s.message}", Palette.Error)
+                    is UpdateState.Failed -> StatusText(s.message, Palette.Warn)
                     else -> if (installResult != null) StatusText(installResult!!)
                 }
                 BigButton("Check for update", enabled = s != UpdateState.Checking) { updates.check() }

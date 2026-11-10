@@ -234,7 +234,7 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
     val remaining = prog?.remainingM ?: a.route.distanceM
     val arrive = prog?.arriveAtMs ?: (System.currentTimeMillis() + (a.route.durationS * 1000).toLong())
     val minutes = ((arrive - System.currentTimeMillis()) / 60_000.0).coerceAtLeast(0.0)
-    val now = System.currentTimeMillis()
+    val now = com.taycanscreen.app.util.Mono.ms()
     val soc = readings[com.taycanscreen.app.obd.Taycan.SOC_DISPLAY.id]?.takeIf { now - it.at <= com.taycanscreen.app.obd.Taycan.SOC_DISPLAY.staleMs }?.value
     val range = readings[com.taycanscreen.app.obd.Taycan.RANGE.id]?.takeIf { now - it.at <= com.taycanscreen.app.obd.Taycan.RANGE.staleMs }?.value
     val battery = com.taycanscreen.app.car.Arrival.pct(remaining, soc, range)

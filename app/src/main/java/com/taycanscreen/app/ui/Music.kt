@@ -121,9 +121,10 @@ fun MusicPanel(
         val m = msg ?: ""
         return when {
             "UnknownHost" in m || "Unable to resolve host" in m || "ConnectException" in m || "SocketTimeout" in m || "timeout" in m.lowercase() ->
-                "No internet right now (garage or weak signal?). Browsing and search need a connection; what's playing keeps playing."
-            m.isBlank() -> "Couldn't load"
-            else -> m.trim('"')
+                "No internet right now. Browsing and search need a connection; what's playing keeps playing."
+            "SSL" in m || "Chain validation" in m -> "The box's clock isn't set yet. Try again in a minute."
+            m.startsWith("Spotify ") -> m // already written for the driver
+            else -> "Couldn't load that. Try again."
         }
     }
 
@@ -135,7 +136,7 @@ fun MusicPanel(
             try {
                 val items = call()
                 stack.add(title to items)
-                if (items.isEmpty()) error = "Nothing here"
+                if (items.isEmpty()) error = "This list is empty."
             } catch (e: SpotifyWeb.TokenNeeded) {
                 pending = { web(title, call) }
                 error = "Renewing Spotify sign-in…"
@@ -240,10 +241,10 @@ fun MusicPanel(
             }
             view == "now" -> NowPlayingView(c, Modifier.fillMaxSize())
             else -> {
-                if (!online) Text("The box is offline right now (no Wi-Fi or 4G internet).", color = c.warn, fontSize = 15.sp)
+                if (!online) Text("No internet. What's playing keeps playing.", color = c.warn, fontSize = 15.sp)
                 if (loading) Text("Loading…", color = c.textDim, fontSize = 15.sp)
                 error?.let {
-                    Text(it, color = if (it.startsWith("Renewing")) c.textDim else c.danger, fontSize = 15.sp)
+                    Text(it, color = if (it.startsWith("Renewing") || it.startsWith("This list")) c.textDim else c.warn, fontSize = 15.sp)
                     if (stack.isEmpty() && !loading) {
                         Text(
                             "Try again", color = c.accent, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
@@ -288,10 +289,10 @@ private fun SearchField(value: String, c: DriveColors, onChange: (String) -> Uni
 private fun NowPlayingView(c: DriveColors, modifier: Modifier) {
     val np by SpotifyController.nowPlaying.collectAsState()
     val art by SpotifyController.artwork.collectAsState()
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    var now by remember { mutableStateOf(com.taycanscreen.app.util.Mono.ms()) }
     LaunchedEffect(Unit) {
         while (true) {
-            now = System.currentTimeMillis()
+            now = com.taycanscreen.app.util.Mono.ms()
             kotlinx.coroutines.delay(500)
         }
     }

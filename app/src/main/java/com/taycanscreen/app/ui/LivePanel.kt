@@ -38,10 +38,10 @@ private const val DASH = "—"
 fun LivePanel(obd: ObdViewModel, onRequestPermission: () -> Unit, modifier: Modifier = Modifier) {
     val status by obd.status.collectAsState()
     val readings by obd.readings.collectAsState()
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var now by remember { mutableLongStateOf(com.taycanscreen.app.util.Mono.ms()) }
     LaunchedEffect(Unit) {
         while (true) {
-            now = System.currentTimeMillis()
+            now = com.taycanscreen.app.util.Mono.ms()
             delay(500)
         }
     }

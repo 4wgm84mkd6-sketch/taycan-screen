@@ -37,7 +37,7 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
                 else UpdateState.UpToDate(latest.versionCode)
             } catch (e: Exception) {
                 AppLog.error("update", "Update check failed", e)
-                UpdateState.Failed(e.message ?: e.javaClass.simpleName)
+                UpdateState.Failed(com.taycanscreen.app.util.Friendly.net(e, "Couldn't check for updates. Try again later."))
             }
         }
     }
@@ -57,7 +57,7 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
                 updater.install(apk)
             } catch (e: Exception) {
                 AppLog.error("update", "Update failed", e)
-                _state.value = UpdateState.Failed(e.message ?: e.javaClass.simpleName)
+                _state.value = UpdateState.Failed(com.taycanscreen.app.util.Friendly.net(e, "The update didn't download. Tap Check for update to try again."))
             }
         }
     }

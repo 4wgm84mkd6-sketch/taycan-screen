@@ -101,6 +101,8 @@ class Updater(private val context: Context) {
                 }
             }
             AppLog.info(TAG, "Downloaded ${out.length()} bytes")
+            // Never hand Android half a file.
+            if (total > 0 && done != total) throw IOException("Download stopped early ($done of $total bytes)")
             out
         } finally {
             conn.disconnect()

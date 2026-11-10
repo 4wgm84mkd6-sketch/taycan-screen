@@ -11,6 +11,7 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.obd.IsoTp.toHex
+import com.taycanscreen.app.util.Mono
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -24,14 +25,20 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Latest decoded value of one signal. [value] null = the car answered but with no usable data. */
+/**
+ * Latest decoded value of one signal. [value] null = the car answered but with no usable data.
+ * [at] is [Mono.ms] (monotonic), never the date clock.
+ */
 data class Reading(val value: Double?, val raw: String, val at: Long)
 
 enum class LinkState { Stopped, NeedsPermission, BluetoothOff, ChooseAdapter, Connecting, Initializing, Live, CarAsleep, Retrying }
 
 data class ObdStatus(
     val state: LinkState = LinkState.Stopped,
+    /** Longer explanation for the Vehicle and Setup screens. The Drive screen shows its own short text. */
     val detail: String = "",
+    /** [Mono.ms] when the link last stopped being live (0 while live): how long we've been trying. */
+    val downSince: Long = 0L,
     val adapterName: String? = null,
     val pairedDevices: List<Pair<String, String>> = emptyList(), // name to address
 )
@@ -46,8 +53,12 @@ object ObdEngine {
         private const val PREFS = "obd"
         private const val KEY_ADAPTER = "adapter_address"
         private const val KEY_CHANNEL1 = "connect_channel1"
-        /** Re-enter the extended session if the module hasn't been asked anything for this long. */
-        private const val SESSION_REFRESH_MS = 3_000L
+        /** Ask a module for the extended session at most this often, and only after it refused a read. */
+        private const val SESSION_RETRY_MS = 30_000L
+        /** After a failed connect: retry quickly at first (a failed try already takes ~5 s), then ease off. */
+        private const val RETRY_FAST_MS = 500L
+        private const val RETRY_SLOW_MS = 5_000L
+        private const val RETRY_FAST_FOR_MS = 120_000L
         /** Full polling cycles with no answer from the car before we stop talking to it. */
         private const val QUIET_CYCLES_TO_SLEEP = 5
         /** While the car is off, check only the adapter's 12 V reading (no CAN traffic) this often. */
@@ -72,6 +83,10 @@ object ObdEngine {
     val lowVolts: StateFlow<Reading?> = _lowVolts.asStateFlow()
 
     private var job: Job? = null
+    /** A loop that was told to stop but may still be inside a Bluetooth read; the next one waits for it. */
+    private var stopping: Job? = null
+    /** The open adapter link, so [stop] can close it and unblock the loop at once. */
+    @Volatile private var current: ElmConnection? = null
 
     /** Signal groups a screen has asked for ("power", "cells"); other groups aren't polled. */
     @Volatile var activeGroups: Set<String> = emptySet()
@@ -123,13 +138,23 @@ object ObdEngine {
             return
         }
         AppLog.info(TAG, "Starting the OBD connection loop")
-        job = scope.launch { runLoop() }
+        val previous = stopping
+        stopping = null
+        job = scope.launch {
+            // Never two loops on the adapter: wait until the old one has really ended.
+            previous?.join()
+            runLoop()
+        }
     }
 
     @Synchronized
     fun stop() {
-        job?.cancel()
+        job?.let {
+            it.cancel()
+            stopping = it
+        }
         job = null
+        current?.close()
         _readings.value = emptyMap()
         _status.value = _status.value.copy(state = LinkState.Stopped, detail = "Stopped")
         AppLog.info(TAG, "Stopped by user")
@@ -164,7 +189,8 @@ object ObdEngine {
     }
 
     private suspend fun runLoop() {
-        var backoffMs = 1_000L
+        var useChannel1 = prefs.getBoolean(KEY_CHANNEL1, true)
+        var downSince = Mono.ms()
         while (currentCoroutineContext().isActive) {
             val device = findAdapter()
             if (device == null) {
@@ -174,38 +200,59 @@ object ObdEngine {
             @SuppressLint("MissingPermission")
             val name = device.name ?: device.address
             var conn: ElmConnection? = null
+            var connected = false
+            var live = false
             try {
-                _status.value = _status.value.copy(state = LinkState.Connecting, detail = "Connecting to $name…", adapterName = name)
-                conn = ElmConnection.open(device, prefs.getBoolean(KEY_CHANNEL1, true)) { ch1 ->
-                    prefs.edit().putBoolean(KEY_CHANNEL1, ch1).apply()
-                }
+                _status.value = _status.value.copy(state = LinkState.Connecting, detail = "Connecting to $name…", adapterName = name, downSince = downSince)
+                runCatching { app.getSystemService(BluetoothManager::class.java)?.adapter?.cancelDiscovery() }
+                conn = ElmConnection.open(device, useChannel1)
+                current = conn
+                connected = true
+                if (prefs.getBoolean(KEY_CHANNEL1, true) != useChannel1) prefs.edit().putBoolean(KEY_CHANNEL1, useChannel1).apply()
                 _status.value = _status.value.copy(state = LinkState.Initializing, detail = "Setting up adapter…")
                 initAdapter(conn)
-                AppLog.info("boot", "Car link live ${android.os.SystemClock.elapsedRealtime() / 1000} s after Android started")
-                _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car")
-                backoffMs = 1_000L
+                AppLog.info("boot", "Car link live ${android.os.SystemClock.elapsedRealtime() / 1000} s after Android started (${(Mono.ms() - downSince) / 1000} s of trying)")
+                _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car", downSince = 0L)
+                live = true
                 pollForever(conn)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                AppLog.error(TAG, "Link dropped", e)
-                val couldntConnect = _status.value.state == LinkState.Connecting
+                // stop() closes the link to unblock us: that's not a fault.
+                if (!currentCoroutineContext().isActive) throw kotlinx.coroutines.CancellationException("stopped")
+                AppLog.error(TAG, if (connected) "Link dropped" else "Couldn't connect", e)
+                if (live) downSince = Mono.ms()
+                if (!connected) useChannel1 = !useChannel1 // try the other way next
+                // Never leave old numbers on screen while the link is down.
+                _readings.value = emptyMap()
                 _status.value = _status.value.copy(
                     state = LinkState.Retrying,
-                    detail = if (couldntConnect) {
+                    downSince = downSince,
+                    detail = if (!connected) {
                         // Bluetooth connect refused: almost always the adapter is busy or asleep.
-                        "Can't reach the OBDLink. Close Car Scanner on your iPhone (or turn its Bluetooth off) " +
-                            "and switch the car on. Retrying in ${backoffMs / 1000} s"
+                        "Can't reach the OBDLink yet. If this goes on, close Car Scanner on your iPhone " +
+                            "(or turn its Bluetooth off) and check the car is switched on. Still trying."
                     } else {
-                        "Lost connection (${e.message}); retrying in ${backoffMs / 1000} s"
+                        "Lost the link to the car. Reconnecting."
                     },
                 )
             } finally {
+                current = null
                 conn?.close()
             }
-            delay(backoffMs)
-            backoffMs = (backoffMs * 2).coerceAtMost(15_000L)
+            delay(if (Mono.ms() - downSince < RETRY_FAST_FOR_MS) RETRY_FAST_MS else RETRY_SLOW_MS)
         }
+    }
+
+    /**
+     * Sends an adapter setting and checks it was accepted. After an interrupted request the adapter can
+     * answer STOPPED instead of OK; ignoring that left the old module selected and every reply in the
+     * wrong place (seen 2026-11-09 17:23:13).
+     */
+    private fun setting(c: ElmConnection, cmd: String): Boolean {
+        if ("OK" in c.send(cmd)) return true
+        AppLog.warn(TAG, "$cmd not confirmed; sending it again")
+        return "OK" in c.send(cmd)
     }
 
     private fun initAdapter(c: ElmConnection) {
@@ -224,7 +271,7 @@ object ObdEngine {
 
     private fun recordVolts(reply: String): Double? {
         val v = Regex("""(\d+(?:\.\d+)?)\s*V""").find(reply)?.groupValues?.get(1)?.toDoubleOrNull()
-        if (v != null) _lowVolts.value = Reading(v, reply.trim(), System.currentTimeMillis())
+        if (v != null) _lowVolts.value = Reading(v, reply.trim(), Mono.ms())
         return v
     }
 
@@ -286,35 +333,36 @@ object ObdEngine {
                 val cmd = sig.command
                 if (header != cmd.hdr || cmd.flowControl != customFlowControl) {
                     // Also re-run when flow control differs on the same module (e.g. 710 2AB6 fc vs 2A0C).
+                    var ok = true
                     if (header != cmd.hdr) {
-                        c.send("ATSH${cmd.hdr}")
-                        c.send("ATCRA${cmd.rax}")
+                        ok = setting(c, "ATSH${cmd.hdr}") && setting(c, "ATCRA${cmd.rax}")
                     }
-                    if (cmd.flowControl) {
+                    if (ok && cmd.flowControl) {
                         // Flow control frames for multi-frame replies go to this module's own id.
-                        c.send("ATFCSH${cmd.hdr}")
-                        c.send("ATFCSD300000")
-                        c.send("ATFCSM1")
-                    } else if (customFlowControl) {
-                        c.send("ATFCSM0")
+                        ok = setting(c, "ATFCSH${cmd.hdr}") && setting(c, "ATFCSD300000") && setting(c, "ATFCSM1")
+                    } else if (ok && customFlowControl) {
+                        ok = setting(c, "ATFCSM0")
+                    }
+                    if (!ok) {
+                        // Don't ask the car anything while the adapter may be pointed at another module.
+                        AppLog.warn(TAG, "Adapter didn't take the settings for ${cmd.hdr}; skipping ${sig.id} this round")
+                        header = null
+                        customFlowControl = true
+                        continue
                     }
                     customFlowControl = cmd.flowControl
                     header = cmd.hdr
                 }
-                if (cmd.extendedSession) {
-                    val last = lastSessionAt[cmd.hdr] ?: 0L
-                    if (System.currentTimeMillis() - last > SESSION_REFRESH_MS) {
-                        enterSession(c, cmd)
-                    }
-                }
                 var result = request(c, cmd)
-                // Session lapsed or not accepted yet: enter it once more and retry this request.
-                if (cmd.extendedSession && result is IsoTp.Result.Payload && isSessionNrc(result.bytes)) {
+                // 10 03 (extended session) is no longer sent up front: on this car the battery module
+                // never answers it (NO DATA 26 times out of 26, ~0.43 s each) and its readings work
+                // without it. It is only tried if the module actually refuses a read for that reason.
+                if (cmd.extendedSession && result is IsoTp.Result.Payload && isSessionNrc(result.bytes) &&
+                    Mono.ms() - (lastSessionAt[cmd.hdr] ?: -SESSION_RETRY_MS) >= SESSION_RETRY_MS
+                ) {
+                    lastSessionAt[cmd.hdr] = Mono.ms()
                     enterSession(c, cmd)
                     result = request(c, cmd)
-                }
-                if (cmd.extendedSession && result is IsoTp.Result.Payload && result.bytes.firstOrNull() == 0x62.toByte()) {
-                    lastSessionAt[cmd.hdr] = System.currentTimeMillis()
                 }
                 record(sig, result)
                 if (result is IsoTp.Result.Payload && result.bytes.firstOrNull() == 0x62.toByte()) answered = true
@@ -435,7 +483,7 @@ object ObdEngine {
     }
 
     private fun record(sig: Signal, r: IsoTp.Result) {
-        val now = System.currentTimeMillis()
+        val now = Mono.ms()
         val didBytes = IsoTp.hexToBytes(sig.command.did)!!
         val ok = r is IsoTp.Result.Payload && r.bytes.size > 3 && r.bytes[0] == 0x62.toByte() &&
             r.bytes[1] == didBytes[0] && r.bytes[2] == didBytes[1]
@@ -449,9 +497,12 @@ object ObdEngine {
             sib.id to Reading(v, raw, now)
         }
         _readings.value = _readings.value + all
-        if (data != null && sig.group == "cells") Cells.onModule(sig.id, data)
-        if (reading.value != null) com.taycanscreen.app.ui.Boot.mark("First car data")
-        if (sig == Taycan.SPEED_DIR) com.taycanscreen.app.audio.EqEngine.onSpeed(reading.value?.let { kotlin.math.abs(it) * 0.621371 })
+        // Extras must never be able to knock the car link over.
+        runCatching {
+            if (data != null && sig.group == "cells") Cells.onModule(sig.id, data)
+            if (reading.value != null) com.taycanscreen.app.ui.Boot.mark("First car data")
+            if (sig == Taycan.SPEED_DIR) com.taycanscreen.app.audio.EqEngine.onSpeed(reading.value?.let { kotlin.math.abs(it) * 0.621371 })
+        }.onFailure { AppLog.warn(TAG, "After-reading step failed: ${it.javaClass.simpleName}: ${it.message}") }
         AppLog.info("value", "${sig.id} = ${reading.value?.let { "%.2f %s".format(it, sig.unit) } ?: "—"} (${reading.raw})")
     }
 

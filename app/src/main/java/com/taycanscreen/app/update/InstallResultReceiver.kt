@@ -36,7 +36,7 @@ class InstallResultReceiver : BroadcastReceiver() {
                         lastResult.value = "Tap Update on Android's screen to finish."
                     } catch (e: Exception) {
                         AppLog.error("update", "Couldn't open the confirm screen", e)
-                        lastResult.value = "Couldn't open Android's install screen: ${e.message}"
+                        lastResult.value = "Couldn't open Android's install screen. Tap Check for update to try again."
                     }
                 }
             }
@@ -47,7 +47,7 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
             else -> {
                 AppLog.error("update", "Install failed: status $status, $message")
-                lastResult.value = "Install failed (status $status): ${message ?: "no details"}"
+                lastResult.value = "The update wasn't installed. Tap Check for update to try again."
             }
         }
     }

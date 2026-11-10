@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Lets an update install without Android's confirm screen once this app installed the previous one itself. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Equalizer on the players' audio sessions (and the global mix as a fallback). -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />

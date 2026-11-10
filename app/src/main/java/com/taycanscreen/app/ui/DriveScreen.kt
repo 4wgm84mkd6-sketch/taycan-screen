@@ -2,7 +2,6 @@ package com.taycanscreen.app.ui
 
 import android.content.Context
 import android.content.Intent
-import android.media.AudioManager
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.foundation.Image
@@ -38,7 +37,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -197,10 +195,10 @@ private fun DriveContent(
     val readings by obd.readings.collectAsState()
     val lowVolts by com.taycanscreen.app.obd.ObdEngine.lowVolts.collectAsState()
     val spotify by SpotifyController.status.collectAsState()
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var now by remember { mutableLongStateOf(com.taycanscreen.app.util.Mono.ms()) }
     LaunchedEffect(Unit) {
         while (true) {
-            now = System.currentTimeMillis()
+            now = com.taycanscreen.app.util.Mono.ms()
             delay(500)
         }
     }
@@ -302,21 +300,15 @@ private fun DriveContent(
     // Search opened to set Home or Work (null = normal search).
     var saveAs by remember { mutableStateOf<String?>(null) }
     val limit by com.taycanscreen.app.car.SpeedLimit.limit.collectAsState()
-    val progress by com.taycanscreen.app.nav.Nav.progress.collectAsState()
-    val arrivePct = progress?.let { com.taycanscreen.app.car.Arrival.pct(it.remainingM, v.soc?.x, v.rangeMi?.x) }
-    val dirMode by com.taycanscreen.app.nav.LocalDirections.mode.collectAsState()
-    val headingName = gps.heading?.let {
-        com.taycanscreen.app.nav.LocalDirections.name(it.toDouble(), gps.fix?.let { f -> com.taycanscreen.app.nav.LatLon(f.latitude, f.longitude) }, dirMode)
-    }
     val trip by com.taycanscreen.app.car.TripComputer.trip.collectAsState()
 
     Box(Modifier.fillMaxSize().background(c.background)) {
         // Vehicle panel full height on the left (owner, 2026-11-09); map with the dock under it on the right.
         Row(Modifier.fillMaxSize()) {
             V3Panel(
-                v, c, now, status.state, status.detail, carOk, headingName, limit, sweepT,
+                v, c, now, status, carOk, limit, sweepT,
                 arcPulse = rememberSince(targets.arcPulseAt, 1.0f),
-                charging = charging, arrivePct = arrivePct,
+                charging = charging,
                 tireWarn = worstTire(readings, now),
                 showPlayer = !(panel == "music" && musicView == "now"),
                 targets = targets,
@@ -345,7 +337,10 @@ private fun DriveContent(
                     )
                     when (panel) {
                         "search" -> SearchPanel(
-                            c, v.speedMph?.x, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
+                            // Typing lock: the car's speed, or GPS speed when the car link is down (it used to
+                            // unlock whenever the car's speed was unknown).
+                            c, v.speedMph?.x ?: gps.fix?.takeIf { it.hasSpeed() }?.let { it.speed * 2.23694 },
+                            gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
                             onClose = { panel = null; saveAs = null }, modifier = Modifier.fillMaxSize(),
                             initialSaveAs = saveAs,
                         )
@@ -400,15 +395,12 @@ private fun V3Panel(
     v: VehicleValues,
     c: DriveColors,
     now: Long,
-    link: LinkState,
-    linkDetail: String,
+    link: com.taycanscreen.app.obd.ObdStatus,
     carOk: Boolean,
-    headingName: String?,
     limit: com.taycanscreen.app.car.SpeedLimit.Limit?,
     sweepT: Float?,
     arcPulse: Float?,
     charging: Boolean,
-    arrivePct: Double?,
     tireWarn: Int,
     showPlayer: Boolean,
     targets: DriveTargets,
@@ -497,8 +489,7 @@ private fun V3Panel(
             Spacer(Modifier.height(18.dp))
             PowerLine(
                 v.kw, c, sweepT, arcPulse,
-                problem = if (link != LinkState.Live && link != LinkState.CarAsleep) linkDetail.ifBlank { null }
-                else if (link == LinkState.CarAsleep) "CAR OFF" else if (!carOk) "WAITING FOR THE CAR" else null,
+                note = linkNote(link, carOk, now),
             )
         }
         Spacer(Modifier.height(22.dp))
@@ -563,9 +554,29 @@ private fun BatteryIcon(pct: Double?, fill: Color, c: DriveColors, modifier: Mod
     }
 }
 
+/** One short line under the power bar about the car link; amber only when something needs attention. */
+private data class LinkNote(val text: String, val warn: Boolean)
+
+/**
+ * What the driver needs to know about the car link, in a few plain words. Connecting is normal and
+ * shown calmly; it turns amber only after 30 s of trying. Exception text never reaches this screen
+ * (the longer explanation is on the Vehicle screen, the detail in the log).
+ */
+private fun linkNote(s: com.taycanscreen.app.obd.ObdStatus, carOk: Boolean, now: Long): LinkNote? = when (s.state) {
+    LinkState.Live -> if (carOk) null else LinkNote("WAITING FOR THE CAR…", false)
+    LinkState.CarAsleep -> LinkNote("CAR OFF", false)
+    LinkState.Connecting, LinkState.Initializing, LinkState.Retrying ->
+        if (s.downSince != 0L && now - s.downSince > 30_000) LinkNote("CAR LINK NOT ANSWERING · STILL TRYING", true)
+        else LinkNote("CONNECTING TO CAR…", false)
+    LinkState.BluetoothOff -> LinkNote("BLUETOOTH IS OFF ON THE BOX", true)
+    LinkState.NeedsPermission -> LinkNote("ALLOW BLUETOOTH IN SETUP", true)
+    LinkState.ChooseAdapter -> LinkNote("CHOOSE THE ADAPTER IN SETUP › VEHICLE", true)
+    LinkState.Stopped -> LinkNote("CAR LINK STOPPED", false)
+}
+
 /** Centre-zero power line (v3): regen to the left third (−150 kW), drive to the right (300 kW). */
 @Composable
-private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, problem: String?) {
+private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, note: LinkNote?) {
     val drive = kw?.let { -it.x } // positive = drawing power
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Canvas(Modifier.fillMaxWidth().height(14.dp)) {
@@ -610,8 +621,8 @@ private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, pr
                 style = Filament.label(12.sp, if ((drive ?: 0.0) < -0.5) c.accent else c.text, 0.08f),
             )
         }
-        if (problem != null) {
-            BasicText(problem.uppercase(), style = Filament.label(12.sp, c.warn, 0.04f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (note != null) {
+            BasicText(note.text, style = Filament.label(12.sp, if (note.warn) c.warn else c.textDim, 0.04f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -754,33 +765,6 @@ private fun DockIcon(icon: ImageVector, description: String, active: Boolean, c:
             Box(Modifier.size(8.dp).clip(CircleShape).background(if (active) c.accent else Color.Transparent))
         }
         if (light != null) Box(Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 16.dp).size(12.dp).clip(CircleShape).background(light))
-    }
-}
-
-@Composable
-private fun VolumeControl(c: DriveColors, modifier: Modifier) {
-    val context = LocalContext.current
-    val audio = remember { context.getSystemService(AudioManager::class.java) }
-    var vol by remember { mutableIntStateOf(audio?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            audio?.let { vol = it.getStreamVolume(AudioManager.STREAM_MUSIC) }
-            delay(1_000)
-        }
-    }
-    fun adjust(direction: Int) {
-        audio ?: return
-        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0)
-        vol = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
-    }
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End)) {
-        Box(Modifier.size(96.dp, 112.dp).clickable { adjust(AudioManager.ADJUST_LOWER) }, contentAlignment = Alignment.Center) {
-            Icon(FIcons.Minus, "Volume down", tint = c.textDim, modifier = Modifier.size(44.dp))
-        }
-        BasicText("$vol", Modifier.width(48.dp), style = Filament.num(30.sp, 500, c.text).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
-        Box(Modifier.size(96.dp, 112.dp).clickable { adjust(AudioManager.ADJUST_RAISE) }, contentAlignment = Alignment.Center) {
-            Icon(FIcons.Plus, "Volume up", tint = c.textDim, modifier = Modifier.size(44.dp))
-        }
     }
 }
 
