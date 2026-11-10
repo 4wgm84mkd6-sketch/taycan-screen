@@ -726,7 +726,8 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
                     ),
                 )
             } else {
-                Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.align(Alignment.Center).padding(bottom = 50.dp).size(44.dp))
+                // Top of the box, so it never sits on the title when the box is short (e.g. with a tire warning).
+                Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp).size(40.dp))
             }
             val onArt = connected && bmp != null
             Column(
