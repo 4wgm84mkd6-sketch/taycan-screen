@@ -61,8 +61,8 @@ object LogUploader {
                     if (attempt < TRIES_PER_PART) kotlinx.coroutines.delay(3_000L * attempt)
                 }
                 if (result != null) {
-                    return@withContext "Upload failed: $result" + if (sent > 0) " ($sent of ${files.size} files sent)" else "" +
-                        ". The log is kept on the box; try again with a better signal."
+                    return@withContext "Couldn't send: $result" + (if (sent > 0) " ($sent of ${files.size} files sent.)" else "") +
+                        " The log is kept on the box; tap Send log to Claude to try again."
                 }
             }
             sent++
@@ -115,13 +115,20 @@ object LogUploader {
             when (val code = conn.responseCode) {
                 200, 201 -> null
                 401 -> throw SignInNeeded("GitHub sign-in expired. Sign in again.")
-                403, 404 -> "The token can't write to ${BuildConfig.LOG_REPO} (HTTP $code)."
-                else -> "HTTP $code " + (conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) ?: "")
+                403, 404 -> {
+                    AppLog.warn(TAG, "GitHub refused the upload to ${BuildConfig.LOG_REPO} (HTTP $code)")
+                    "GitHub didn't accept it. Sign out of GitHub below, sign in again, and retry."
+                }
+                else -> {
+                    AppLog.warn(TAG, "Upload answered HTTP $code " + (conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) ?: ""))
+                    "GitHub is having trouble right now."
+                }
             }
         } catch (e: SignInNeeded) {
             throw e
         } catch (e: Exception) {
-            "${e.javaClass.simpleName}: ${e.message}"
+            AppLog.warn(TAG, "Upload failed: ${e.javaClass.simpleName}: ${e.message}")
+            com.taycanscreen.app.util.Friendly.net(e, "the connection dropped.")
         } finally {
             conn.disconnect()
         }
