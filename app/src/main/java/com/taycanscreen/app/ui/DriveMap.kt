@@ -343,8 +343,8 @@ fun MapArea(
             }
         }
 
-        // GPS status only while there's no fix (v3 keeps the map clean).
-        if (gps.fix == null) GpsChip(gps, locationGranted, c, Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 40.dp))
+        // While there's no fix the reticle on the map says so ("SEARCHING · GPS · n/n SAT"); the separate
+        // chip that repeated it in the corner is gone.
         // "Search for destination" box, top left (owner, 2026-11-09, like Porsche's); the turn card takes
         // its place during a route.
         val activeRoute by com.taycanscreen.app.nav.Nav.active.collectAsState()
@@ -650,28 +650,6 @@ private fun NorthButton(northUp: Boolean, gps: GpsInfo, c: DriveColors, onToggle
             tint = c.accent, modifier = Modifier.size(32.dp).rotate(if (northUp) 0f else gps.mapOrientation),
         )
         BasicText(if (northUp) "N UP" else "HDG", Modifier.padding(top = 2.dp), style = Filament.label(12.sp, c.textDim, 0.08f))
-    }
-}
-
-@Composable
-private fun GpsChip(gps: GpsInfo, locationGranted: Boolean, c: DriveColors, modifier: Modifier) {
-    val fix = gps.fix
-    Row(
-        modifier.height(40.dp).background(c.overlay, Filament.CutS).insetLine(c.border).padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(FIcons.Gps, null, tint = if (fix != null) c.accent else c.textFaint, modifier = Modifier.size(18.dp))
-        BasicText(
-            when {
-                !locationGranted -> "GPS · NO PERMISSION"
-                fix == null -> "GPS SEARCHING"
-                else -> "GPS ±${fix.accuracy.roundToInt()} m"
-            },
-            style = Filament.label(14.sp, c.textDim, 0f),
-        )
-        Box(Modifier.width(1.dp).height(16.dp).background(c.border))
-        BasicText("${gps.usedSats}/${gps.seenSats} SAT", style = Filament.label(14.sp, c.textDim, 0f))
     }
 }
 
