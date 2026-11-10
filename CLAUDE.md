@@ -62,6 +62,10 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
 - Start-up (StartupLockOn board): locks wait for real events; hand-off by 3.0 s so Drive takes touches
   within 4 s of the first frame, always. Gauge sweep only on the first shift into D per app start.
 - No phone features: no driver detection, no iPhone pairing, no calls (owner, 2026-11-09).
+- Every feature works at any speed (owner, 2026-11-10): no typing lock, no locked EQ sliders, nothing
+  disabled while moving. Don't add speed-based restrictions. (Nothing may open by itself while moving:
+  Spotify's permission screen only opens on a tap or when the car is standing.)
+- Dock: icons only, no text labels (owner, 2026-11-10).
 - The instrument cluster stays the official speedometer. Glanceable: large type, high contrast,
   no video.
 - The Porsche frame keeps its right column visible, so the app window is narrower than the full
