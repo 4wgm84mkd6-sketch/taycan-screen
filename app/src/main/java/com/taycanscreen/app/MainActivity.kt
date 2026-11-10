@@ -327,7 +327,7 @@ private fun MainScreen(
                 Modifier
                     .width(150.dp)
                     .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 Text("Taycan Screen", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text("Build ${BuildConfig.VERSION_CODE}", color = Palette.TextDim, fontSize = 16.sp)
@@ -435,7 +435,7 @@ private fun StatusPanel(obd: ObdViewModel, modifier: Modifier) {
 private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
         shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) Palette.Accent else Palette.SurfaceHigh,
