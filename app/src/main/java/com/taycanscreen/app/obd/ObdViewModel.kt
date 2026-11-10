@@ -327,10 +327,16 @@ object ObdEngine {
                 continue
             }
             var answered = false
+            // A module that doesn't answer its first request this cycle isn't asked again until the next
+            // one: each unanswered request costs ~0.45 s, which used to starve the speed reading.
+            var silentModule: String? = null
+            var askedModule: String? = null
             for (sig in Taycan.POLLED) {
                 if (!sig.due(cycle)) continue
                 if (sig.group != null && sig.group !in activeGroups) continue
                 val cmd = sig.command
+                if (cmd.hdr == silentModule) continue
+                val firstForModule = askedModule != cmd.hdr
                 if (header != cmd.hdr || cmd.flowControl != customFlowControl) {
                     // Also re-run when flow control differs on the same module (e.g. 710 2AB6 fc vs 2A0C).
                     var ok = true
@@ -364,6 +370,8 @@ object ObdEngine {
                     enterSession(c, cmd)
                     result = request(c, cmd)
                 }
+                askedModule = cmd.hdr
+                if (firstForModule && result is IsoTp.Result.Failure && result.reason == "NO DATA") silentModule = cmd.hdr
                 record(sig, result)
                 if (result is IsoTp.Result.Payload && result.bytes.firstOrNull() == 0x62.toByte()) answered = true
             }
@@ -378,8 +386,8 @@ object ObdEngine {
                 )
             }
             cycle++
-            if (cycle % 40 == 0L) adapterVolts(c) // refresh the 12 V readout now and then (adapter only)
-            delay(150)
+            if (cycle % 100 == 50L) adapterVolts(c) // refresh the 12 V readout now and then (adapter only)
+            delay(20)
         }
     }
 

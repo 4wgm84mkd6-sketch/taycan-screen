@@ -6,7 +6,6 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
-import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import com.taycanscreen.app.log.AppLog
@@ -79,7 +78,18 @@ class CarTracker(
         if (location.provider == LocationManager.GPS_PROVIDER) lastGpsAt = nowEl
         else if (nowEl - lastGpsAt < 3_000) return
         val obd = carSpeedKmh()
-        val moving = (location.hasSpeed() && location.speed > 1.5f) || (obd != null && obd > 5.0)
+        // The car's own speed decides whether we're moving; GPS speed only when the car link is down.
+        // (In a garage GPS reports ±100 m and a few mph while the car stands still.)
+        val moving = obd?.let { it > 3.0 } ?: (location.hasSpeed() && location.speed > 1.5f)
+        val held = fix
+        if (obd != null && obd < 1.0 && held != null && !firstFix &&
+            held.distanceTo(location) < maxOf(location.accuracy, held.accuracy, 15f) &&
+            location.accuracy >= held.accuracy * 0.7f // a clearly better fix is still taken
+        ) {
+            // Standing still and the new fix is within its own error of where we already are: keep the
+            // marker where it is instead of letting it wander.
+            return
+        }
         val prev = lastPoint
         val gpsBearing = if (location.hasBearing() && (location.bearing != 0f || location.hasSpeed())) location.bearing else null
         val bearing: Float? = when {
@@ -90,8 +100,9 @@ class CarTracker(
         }
         if (prev == null || prev.distanceTo(location) >= 6f || !moving) lastPoint = Location(location)
         if (bearing != null) lastBearing = bearing
-        val ageMs = ((SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L)
-            .takeIf { location.elapsedRealtimeNanos > 0 && it in 0..3_000 } ?: 0L
+        // A fix older than 3 s (e.g. the last known position at start) gets no forward prediction.
+        val rawAge = (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L
+        val ageMs = if (location.elapsedRealtimeNanos > 0 && rawAge in 0..3_000) rawAge else if (rawAge > 3_000) 2_500L else 0L
         val copy = Location(location)
         fix = copy
         fixAtMs = nowEl - ageMs
@@ -100,7 +111,7 @@ class CarTracker(
             AppLog.info("map", "GPS fix")
         }
         val status = "GPS ±%d m · %s".format(location.accuracy.roundToInt(), location.provider ?: "?")
-        Handler(Looper.getMainLooper()).post { onFix(status, copy, lastBearing) }
+        onFix(status, copy, lastBearing) // already on the main thread
         val now = System.currentTimeMillis()
         if (now - lastLogAt > (if (moving) 10_000 else 30_000)) {
             lastLogAt = now

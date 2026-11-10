@@ -4,6 +4,16 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.widget.Toast
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.basicMarquee
@@ -167,7 +177,17 @@ fun DriveScreen(
     onOpenSetup: () -> Unit,
 ) {
     val real = LocalDensity.current
-    BoxWithConstraints(Modifier.fillMaxSize().background(colors.background)) {
+    // Day ↔ night: dip to the new background, swap the colours behind it, then reveal (no hard cut).
+    var shown by remember { mutableStateOf(colors) }
+    val veil = remember { Animatable(0f) }
+    LaunchedEffect(colors) {
+        if (colors == shown) return@LaunchedEffect
+        veil.animateTo(1f, tween(180))
+        shown = colors
+        delay(80) // the map recolours
+        veil.animateTo(0f, tween(360))
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().background(shown.background)) {
         val wPx = constraints.maxWidth
         val hPx = constraints.maxHeight
         val k = min(wPx / 1602f, hPx / 720f).coerceAtLeast(0.3f)
@@ -175,8 +195,9 @@ fun DriveScreen(
             AppLog.info("screen", "Drive screen %d×%d px, %.3f px per design px".format(wPx, hPx, k))
         }
         CompositionLocalProvider(LocalDensity provides Density(k, 1f)) {
-            DriveContent(obd, colors, themeMode, locationGranted, onCycleTheme, onOpenVehicle, onOpenSetup, real)
+            DriveContent(obd, shown, themeMode, locationGranted, onCycleTheme, onOpenVehicle, onOpenSetup, real)
         }
+        if (veil.value > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = veil.value }.background(colors.background))
     }
 }
 
@@ -335,8 +356,9 @@ private fun DriveContent(
                             }
                         },
                     )
-                    when (panel) {
-                        "search" -> SearchPanel(
+                    // Panels ease in and out over the map instead of cutting.
+                    Appear(panel == "search") {
+                        SearchPanel(
                             // Typing lock: the car's speed, or GPS speed when the car link is down (it used to
                             // unlock whenever the car's speed was unknown).
                             c, v.speedMph?.x ?: gps.fix?.takeIf { it.hasSpeed() }?.let { it.speed * 2.23694 },
@@ -344,18 +366,28 @@ private fun DriveContent(
                             onClose = { panel = null; saveAs = null }, modifier = Modifier.fillMaxSize(),
                             initialSaveAs = saveAs,
                         )
-                        "ledger" -> LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = Modifier)
                     }
-                    CompositionLocalProvider(LocalDensity provides realDensity) {
-                        when (panel) {
-                            "music" -> MusicPanel(
+                    Appear(
+                        panel == "ledger",
+                        enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { -it / 6 },
+                        exit = fadeOut(tween(120)) + slideOutHorizontally(tween(160)) { -it / 6 },
+                    ) {
+                        LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = Modifier)
+                    }
+                    Appear(panel == "music") {
+                        CompositionLocalProvider(LocalDensity provides realDensity) {
+                            MusicPanel(
                                 c,
                                 onClose = { panel = null },
                                 onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
                                 modifier = Modifier.fillMaxSize(),
                                 onViewChange = { musicView = it },
                             )
-                            "audio" -> AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                    Appear(panel == "audio") {
+                        CompositionLocalProvider(LocalDensity provides realDensity) {
+                            AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
                         }
                     }
                 }
@@ -464,12 +496,10 @@ private fun V3Panel(
             // Speed, with gear, the road's limit and the unit on the right.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 // No speed yet: a short faint dash (an em dash at this size is a heavy bar).
-                BasicText(
-                    v.speedMph?.x?.roundToInt()?.toString() ?: "–",
+                SpeedNumber(
+                    v.speedMph, c,
                     Modifier.weight(1f).capBox(168.dp).alpha(if (v.speedMph?.dim == true) 0.45f else 1f)
                         .onGloballyPositioned { targets.arc = it.boundsInRoot().center },
-                    style = Filament.num(168.sp, 300, if (v.speedMph == null) c.textFaint else c.text).copy(letterSpacing = (-8).sp),
-                    maxLines = 1,
                 )
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (limit != null) {
@@ -554,6 +584,36 @@ private fun BatteryIcon(pct: Double?, fill: Color, c: DriveColors, modifier: Mod
     }
 }
 
+/**
+ * The big speed. Readings arrive 3 to 4 times a second; the number glides from one to the next (through
+ * the whole numbers in between) instead of jumping, like the instrument cluster's. Only this text is
+ * redrawn as it moves.
+ */
+@Composable
+private fun SpeedNumber(speed: V?, c: DriveColors, modifier: Modifier) {
+    val shown = remember { Animatable(speed?.x?.toFloat() ?: 0f) }
+    var had by remember { mutableStateOf(speed != null) }
+    LaunchedEffect(speed?.x) {
+        val target = speed?.x?.toFloat()
+        if (target == null) {
+            had = false
+            return@LaunchedEffect
+        }
+        // First value after a gap, or a big step: show it at once rather than counting up to it.
+        if (!had || kotlin.math.abs(target - shown.value) > 15f) shown.snapTo(target)
+        else shown.animateTo(target, tween(320, easing = LinearEasing))
+        had = true
+    }
+    val text by remember { derivedStateOf { shown.value.roundToInt().toString() } }
+    BasicText(
+        // No speed yet: a short faint dash (an em dash at this size is a heavy bar).
+        if (speed == null) "–" else text,
+        modifier,
+        style = Filament.num(168.sp, 300, if (speed == null) c.textFaint else c.text).copy(letterSpacing = (-8).sp),
+        maxLines = 1,
+    )
+}
+
 /** One short line under the power bar about the car link; amber only when something needs attention. */
 private data class LinkNote(val text: String, val warn: Boolean)
 
@@ -578,6 +638,8 @@ private fun linkNote(s: com.taycanscreen.app.obd.ObdStatus, carOk: Boolean, now:
 @Composable
 private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, note: LinkNote?) {
     val drive = kw?.let { -it.x } // positive = drawing power
+    // The bar eases between readings instead of stepping.
+    val eased by animateFloatAsState((drive ?: 0.0).toFloat(), tween(320, easing = LinearEasing), label = "power")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Canvas(Modifier.fillMaxWidth().height(14.dp)) {
             val w = size.width
@@ -600,11 +662,11 @@ private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, no
                 drawRect(c.accent.copy(alpha = alpha), Offset(minOf(x0, end), y - 2 * density), Size(kotlin.math.abs(end - x0), 4 * density))
             } else if (drive != null) {
                 val a = if (kw.dim) 0.45f else 1f
-                if (drive >= 0) {
-                    val len = (drive / 300.0).coerceIn(0.0, 1.0).toFloat() * (w - x0)
+                if (eased >= 0) {
+                    val len = (eased / 300f).coerceIn(0f, 1f) * (w - x0)
                     drawRect(c.text.copy(alpha = a), Offset(x0, y - 2 * density), Size(len, 4 * density))
                 } else {
-                    val len = (-drive / 150.0).coerceIn(0.0, 1.0).toFloat() * x0
+                    val len = (-eased / 150f).coerceIn(0f, 1f) * x0
                     drawRect(c.accent.copy(alpha = a), Offset(x0 - len, y - 2 * density), Size(len, 4 * density))
                 }
             }

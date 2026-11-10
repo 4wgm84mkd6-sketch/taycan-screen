@@ -128,6 +128,7 @@ object SpeedLimit {
     }
 
     private var offlineLastAt = 0L
+    @Volatile private var offlineBusy = false
 
     /** From the map on each fix (main thread). */
     fun onLocation(lat: Double, lon: Double, heading: Float?, speedKmh: Double?) {
@@ -137,9 +138,17 @@ object SpeedLimit {
         _limit.value?.let { if (now - it.at > 120_000) _limit.value = null }
         if (!offlineChecked) return
         offline?.let { idx ->
-            if (now - offlineLastAt < 800) return
+            if (offlineBusy || now - offlineLastAt < 800) return
             offlineLastAt = now
-            publish(choose(idx.near(p), p, heading), now)
+            offlineBusy = true
+            // Off the screen's thread: matching the nearby roads takes a few milliseconds every time.
+            scope.launch(Dispatchers.Default) {
+                try {
+                    publish(choose(idx.near(p), p, heading), now)
+                } finally {
+                    offlineBusy = false
+                }
+            }
             return
         }
         if (busy || now - lastAskAt < 6_000 || now < backoffUntil) return

@@ -31,6 +31,8 @@ object AppLog {
     private val recent = ArrayDeque<String>()
     private var writer: BufferedWriter? = null
     private var sessionFile: File? = null
+    private var lastFlushNs = 0L
+    private var lastPublishNs = 0L
 
     private val _lines = MutableStateFlow<List<String>>(emptyList())
     val lines: StateFlow<List<String>> = _lines.asStateFlow()
@@ -94,18 +96,29 @@ object AppLog {
     private fun write(kind: String, tag: String, msg: String) {
         val line = "${LocalDateTime.now().format(stampFormat)} ${kind.padEnd(4)} [$tag] $msg"
         synchronized(lock) {
+            val t = System.nanoTime()
             try {
                 writer?.apply {
                     write(line)
                     newLine()
-                    flush()
+                    // The car link writes ~50 lines a second. Push them to storage once a second (and at
+                    // once for warnings and errors) instead of on every line; the box can lose power at
+                    // any moment, so never hold back more than a second.
+                    if (kind == "WARN" || kind == "ERR" || t - lastFlushNs > 1_000_000_000L) {
+                        flush()
+                        lastFlushNs = t
+                    }
                 }
             } catch (_: Exception) {
                 // Never let logging crash the app.
             }
             recent.addLast(line)
             while (recent.size > MAX_SCREEN_LINES) recent.removeFirst()
-            _lines.value = recent.toList()
+            // The on-screen log (Setup) is refreshed a few times a second, not copied for every line.
+            if (t - lastPublishNs > 300_000_000L) {
+                lastPublishNs = t
+                _lines.value = recent.toList()
+            }
         }
         android.util.Log.println(
             if (kind == "ERR") android.util.Log.ERROR else android.util.Log.INFO,
