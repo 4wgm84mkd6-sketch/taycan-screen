@@ -275,40 +275,6 @@ object EqEngine {
         if (session > 0) attach(session, pkg)
     }
 
-    /**
-     * Try to find players' audio sessions without them announcing it, via the playback list Android
-     * keeps. The session id there is a non-public API that may be blocked; the log records the outcome.
-     */
-    fun scanPlayback(context: Context) {
-        try {
-            val am = context.getSystemService(android.media.AudioManager::class.java) ?: return
-            val configs = am.activePlaybackConfigurations
-            val getSession = android.media.AudioPlaybackConfiguration::class.java.getMethod("getSessionId")
-            val getUid = android.media.AudioPlaybackConfiguration::class.java.getMethod("getClientUid")
-            val spotifyUid = runCatching { context.packageManager.getApplicationInfo("com.spotify.music", 0).uid }.getOrNull()
-            if (!scanReported && configs.isNotEmpty()) {
-                scanReported = true
-                val seen = configs.joinToString { "session ${getSession.invoke(it)} uid ${getUid.invoke(it)}" }
-                AppLog.info(TAG, "Playback list: $seen (Spotify uid $spotifyUid; Android hides other apps' sessions as 0 / -1)")
-            }
-            configs.forEach { cfg ->
-                val session = getSession.invoke(cfg) as Int
-                val uid = getUid.invoke(cfg) as Int
-                if (session > 0 && uid == spotifyUid && !effects.containsKey(session)) {
-                    AppLog.info(TAG, "Found Spotify's audio session $session in the playback list")
-                    attach(session, "com.spotify.music")
-                }
-            }
-        } catch (e: Throwable) {
-            if (!scanFailedLogged) {
-                scanFailedLogged = true
-                AppLog.warn(TAG, "Can't read sessions from the playback list: ${e.javaClass.simpleName}: ${e.message}")
-            }
-        }
-    }
-    private var scanFailedLogged = false
-    private var scanReported = false
-
     private fun apply() {
         if (effects.isEmpty()) return
         val bands = effectiveBands()

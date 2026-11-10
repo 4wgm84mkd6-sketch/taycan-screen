@@ -108,7 +108,6 @@ private data class VehicleValues(
     val packMaxC: V?,
     val gear: String?,
     val lowVolts: V?,
-    val lowVoltage: LowVoltageValues,
 ) {
     companion object {
         fun from(r: Map<String, Reading>, low: Reading?, now: Long): VehicleValues {
@@ -128,14 +127,6 @@ private data class VehicleValues(
                 packMaxC = r.v(Taycan.PACK_T_MAX, now),
                 gear = r.v(Taycan.GEAR, now)?.let { Taycan.gearLetter(it.x) },
                 lowVolts = adapterVolts,
-                lowVoltage = LowVoltageValues(
-                    soc = r.v(Taycan.LV_SOC, now),
-                    volts = r.v(Taycan.LV_VOLTAGE, now),
-                    adapterVolts = adapterVolts,
-                    chargeAh = r.v(Taycan.LV_CHARGE, now),
-                    capacityAh = r.v(Taycan.LV_CAPACITY, now),
-                    resistanceMilliOhm = r.v(Taycan.LV_RESISTANCE, now),
-                ),
             )
         }
     }
@@ -478,11 +469,15 @@ private fun V3Panel(
             )
         }
         if (tireWarn > 0) {
-            BasicText(
-                "TIRE PRESSURE LOW ›",
-                Modifier.padding(top = 8.dp).clickable { onLedger("TIRES") },
-                style = Filament.label(13.sp, if (tireWarn > 1) c.danger else c.warn, 0.06f, 500),
-            )
+            // A real button (it was a line of small text): the whole bar opens the Tires page.
+            val col = if (tireWarn > 1) c.danger else c.warn
+            Row(
+                Modifier.padding(top = 8.dp).fillMaxWidth().height(56.dp).border(1.5.dp, col).clickable { onLedger("TIRES") }.padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicText("TIRE PRESSURE LOW", Modifier.weight(1f), style = Filament.label(15.sp, col, 0.06f, 500))
+                BasicText("›", style = Filament.text(24.sp, 500, col))
+            }
         }
 
         if (charging) {
@@ -501,16 +496,17 @@ private fun V3Panel(
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (limit != null) {
                         val over = (v.speedMph?.x ?: 0.0) > limit.mph + 5
+                        // The one small thing a driver checks at speed: sized like a road sign, not a caption.
                         Column(
-                            Modifier.border(1.5.dp, if (over) c.warn else c.textDim).padding(horizontal = 8.dp, vertical = 4.dp),
+                            Modifier.width(84.dp).border(2.dp, if (over) c.warn else c.textDim).padding(top = 6.dp, bottom = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            BasicText("LIMIT", style = Filament.label(9.sp, if (over) c.warn else c.textFaint, 0.12f))
-                            BasicText("${limit.mph}", style = Filament.num(24.sp, 500, if (over) c.warn else c.text))
+                            BasicText("LIMIT", style = Filament.label(11.sp, if (over) c.warn else c.textDim, 0.1f, 500))
+                            BasicText("${limit.mph}", style = Filament.num(38.sp, 500, if (over) c.warn else c.text))
                         }
                     }
                     BasicText(v.gear ?: NO_DATA, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
-                    BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(13.sp, c.textFaint, 0.1f))
+                    BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(15.sp, c.textDim, 0.1f))
                 }
             }
             Spacer(Modifier.height(18.dp))
@@ -669,7 +665,7 @@ private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, no
             }
         }
         Row(Modifier.fillMaxWidth()) {
-            BasicText("REGEN", style = Filament.label(12.sp, c.textFaint, 0.08f))
+            BasicText("REGEN", style = Filament.label(15.sp, c.textFaint, 0.08f))
             Spacer(Modifier.weight(1f))
             BasicText(
                 when {
@@ -677,11 +673,11 @@ private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, no
                     drive >= 0 -> "${drive.roundToInt()} kW"
                     else -> "−${(-drive).roundToInt()} kW"
                 },
-                style = Filament.label(12.sp, if ((drive ?: 0.0) < -0.5) c.accent else c.text, 0.08f),
+                style = Filament.label(15.sp, if ((drive ?: 0.0) < -0.5) c.accent else c.text, 0.08f),
             )
         }
         if (note != null) {
-            BasicText(note.text, style = Filament.label(12.sp, if (note.warn) c.warn else c.textDim, 0.04f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BasicText(note.text, style = Filament.label(14.sp, if (note.warn) c.warn else c.textDim, 0.02f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -763,11 +759,6 @@ private fun RoundButton(icon: ImageVector, label: String, c: DriveColors, size: 
     ) {
         Icon(icon, contentDescription = label, tint = if (primary) c.accent else c.text, modifier = Modifier.size((size * 0.36f).dp))
     }
-}
-
-private fun mmss(ms: Long): String {
-    val s = (ms / 1000).coerceAtLeast(0)
-    return "%d:%02d".format(s / 60, s % 60)
 }
 
 /** v3 dock under the map: trip distance, app icons with an active dot, volume. */

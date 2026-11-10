@@ -627,10 +627,10 @@ private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: Gps
         context.getSharedPreferences("ui", Context.MODE_PRIVATE).edit().putString("directions", next.name).apply()
         AppLog.info("map", "Directions: ${next.name}")
     }
-    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(horizontal = 20.dp, vertical = 12.dp),
-        style = Filament.label(11.sp, c.textFaint, 0.18f))
-    BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 20.dp, vertical = 10.dp),
-        style = Filament.label(11.sp, c.textDim, 0.18f))
+    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(horizontal = 28.dp, vertical = 14.dp),
+        style = Filament.label(14.sp, c.textDim, 0.16f))
+    BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 28.dp, vertical = 14.dp),
+        style = Filament.label(14.sp, c.textDim, 0.16f))
 }
 
 @Composable

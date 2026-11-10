@@ -56,42 +56,6 @@ import com.taycanscreen.app.music.SpotifyWeb
 import kotlinx.coroutines.launch
 import com.taycanscreen.app.music.SpotifyController
 
-/** Design's "Now playing" card: cover, track, artist, previous / play-pause / next. Tap to browse. */
-@Composable
-fun NowPlayingCard(c: DriveColors, onOpenMusic: () -> Unit) {
-    val status by SpotifyController.status.collectAsState()
-    val np by SpotifyController.nowPlaying.collectAsState()
-    val art by SpotifyController.artwork.collectAsState()
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.chip)
-            .clickable(onClick = onOpenMusic).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Cover(art, 52.dp, c)
-            Column(Modifier.weight(1f)) {
-                val connected = status.link == SpotifyController.Link.Connected
-                Text(
-                    if (connected) np?.title ?: "Nothing playing" else "Spotify",
-                    color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    if (connected) np?.artist?.ifBlank { null } ?: "Tap to browse" else status.detail.ifBlank { "Connecting…" },
-                    color = c.textDim, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            RoundControl(DesignIcons.Previous, "Previous track", c, filled = false) { SpotifyController.previous() }
-            RoundControl(if (np?.paused == false) DesignIcons.Pause else DesignIcons.Play, if (np?.paused == false) "Pause" else "Play", c, filled = true) {
-                SpotifyController.togglePlay()
-            }
-            RoundControl(DesignIcons.Next, "Next track", c, filled = false) { SpotifyController.next() }
-        }
-    }
-}
-
 /**
  * In-app Spotify over the map: Now playing, Browse (Spotify's car picks; playlists, albums, podcasts and
  * artists open to their songs/episodes) and Search (Web API).

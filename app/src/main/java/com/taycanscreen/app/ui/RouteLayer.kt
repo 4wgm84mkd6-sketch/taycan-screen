@@ -164,10 +164,10 @@ fun NextTurnBanner(c: DriveColors, modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         when {
-            busy != null -> BasicText(busy!!.uppercase(), style = Filament.label(12.sp, c.accent, 0.12f))
-            prog == null -> BasicText("ROUTE READY", style = Filament.label(12.sp, c.accent, 0.12f))
+            busy != null -> BasicText(busy!!.uppercase(), style = Filament.label(15.sp, c.accent, 0.08f))
+            prog == null -> BasicText("ROUTE READY", style = Filament.label(15.sp, c.accent, 0.08f))
             prog.arrived -> {
-                BasicText("ARRIVED", style = Filament.label(12.sp, c.accent, 0.12f))
+                BasicText("ARRIVED", style = Filament.label(15.sp, c.accent, 0.08f))
                 BasicText(a.dest.name, style = Filament.text(20.sp, 500, c.text), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             else -> {
@@ -176,12 +176,12 @@ fun NextTurnBanner(c: DriveColors, modifier: Modifier) {
                     BasicText(
                         if (prog.offRoute) "RE-ROUTING" else step?.let { s -> listOfNotNull(turnWord(s), dir(s)).joinToString(" · ") } ?: "CONTINUE",
                         Modifier.alignByBaseline(),
-                        style = Filament.label(12.sp, if (prog.offRoute) c.warn else c.accent, 0.12f),
+                        style = Filament.label(15.sp, if (prog.offRoute) c.warn else c.accent, 0.08f, 500),
                     )
                 }
                 BasicText(
                     step?.let { if (it.type == "arrive") a.dest.name else it.name.ifBlank { it.ref ?: RouteMath.instruction(it) } } ?: a.dest.name,
-                    style = Filament.text(20.sp, 500, c.text), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = Filament.text(22.sp, 500, c.text), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 // The manoeuvre after this one.
                 val steps = a.route.steps
@@ -198,7 +198,7 @@ fun NextTurnBanner(c: DriveColors, modifier: Modifier) {
                         if (then.type == "arrive") "Then arrive at ${a.dest.name}"
                         else "Then $word" + (dir(then)?.let { ", ${it.lowercase().replace("ʻewa", "ʻEwa").replace("diamond head", "Diamond Head")}" } ?: "") +
                             (then.name.ifBlank { then.ref ?: "" }.takeIf { it.isNotBlank() }?.let { " on $it" } ?: ""),
-                        style = Filament.text(15.sp, 400, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = Filament.text(17.sp, 400, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -219,13 +219,13 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
     if (a == null) {
         val msg = error ?: busy ?: return
         Row(
-            modifier.height(64.dp).background(c.overlay).border(1.dp, if (error != null) c.warn else c.border).padding(start = 18.dp),
+            modifier.height(72.dp).background(c.overlay).border(1.dp, if (error != null) c.warn else c.border).padding(start = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            BasicText(msg, style = Filament.text(17.sp, 500, if (error != null) c.warn else c.text), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Box(Modifier.size(56.dp).clickable { Nav.clearError(); if (busy != null) Nav.stop() }, contentAlignment = Alignment.Center) {
-                Icon(FIcons.Close, "Dismiss", tint = c.textDim, modifier = Modifier.size(22.dp))
+            BasicText(msg, Modifier.weight(1f), style = Filament.text(17.sp, 500, if (error != null) c.warn else c.text), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.size(72.dp).clickable { Nav.clearError(); if (busy != null) Nav.stop() }, contentAlignment = Alignment.Center) {
+                Icon(FIcons.Close, "Dismiss", tint = c.text, modifier = Modifier.size(26.dp))
             }
         }
         return
@@ -240,7 +240,10 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
     val battery = com.taycanscreen.app.car.Arrival.pct(remaining, soc, range)
     // Under the next-turn card, top left (owner, 2026-11-10): arrival and distance, then battery on
     // arrival with the Waze hand-off and End.
-    Column(modifier.background(c.overlay).border(1.dp, c.border).padding(start = 20.dp, end = 6.dp, top = 12.dp, bottom = 4.dp)) {
+    Column(
+        modifier.background(c.overlay).border(1.dp, c.border).padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             BasicText(
                 Instant.ofEpochMilli(arrive).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm")),
@@ -249,41 +252,31 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
             BasicText(
                 (if (minutes < 60) "${minutes.toInt()} MIN" else "%d H %02d".format((minutes / 60).toInt(), (minutes % 60).toInt())) +
                     " · " + RouteMath.formatDistance(remaining).uppercase(),
-                Modifier.alignByBaseline(), style = Filament.label(13.sp, c.textDim, 0.08f),
+                Modifier.alignByBaseline(), style = Filament.label(15.sp, c.textDim, 0.06f),
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (battery != null) {
                 BasicText(
                     "${battery.roundToInt().coerceAtLeast(0)}% ON ARRIVAL",
-                    style = Filament.label(13.sp, when { battery < 5 -> c.danger; battery < 10 -> c.warn; else -> c.accent }, 0.08f),
+                    style = Filament.label(15.sp, when { battery < 5 -> c.danger; battery < 10 -> c.warn; else -> c.accent }, 0.04f),
                 )
             }
             Spacer(Modifier.weight(1f))
-            Box(Modifier.height(56.dp).clickable { handOff(context, a.dest.lat, a.dest.lon) }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                BasicText(handoffLabel(context), style = Filament.label(13.sp, c.textDim, 0.12f))
-            }
-            Box(Modifier.height(56.dp).clickable { AppLog.info("nav", "Route ended by the owner"); Nav.stop() }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                BasicText("END", style = Filament.label(13.sp, c.textDim, 0.12f))
-            }
+            // Real buttons with a gap between them (they were two small words side by side).
+            CardButton(handoffLabel(context), c) { handOff(context, a.dest.lat, a.dest.lon) }
+            Spacer(Modifier.width(10.dp))
+            CardButton("END", c) { AppLog.info("nav", "Route ended by the owner"); Nav.stop() }
         }
-    }
-}
-
-@Composable
-private fun Stat(label: String, value: String, c: DriveColors, color: androidx.compose.ui.graphics.Color) {
-    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-        BasicText(label, style = Filament.label(12.sp, c.textFaint, 0.16f))
-        BasicText(value, style = Filament.num(26.sp, 600, color))
     }
 }
 
 @Composable
 private fun CardButton(label: String, c: DriveColors, onClick: () -> Unit) {
     Box(
-        Modifier.height(56.dp).background(c.accentSoft, Filament.CutS).insetLine(c.accentLine).clickable(onClick = onClick).padding(horizontal = 16.dp),
+        Modifier.height(64.dp).widthIn(min = 96.dp).border(1.dp, c.lineStrong).clickable(onClick = onClick).padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center,
-    ) { BasicText(label, style = Filament.label(15.sp, c.accent, 0.12f, 500)) }
+    ) { BasicText(label, style = Filament.label(15.sp, c.text, 0.08f, 500)) }
 }
 
 private fun handoffLabel(context: Context): String = when {
