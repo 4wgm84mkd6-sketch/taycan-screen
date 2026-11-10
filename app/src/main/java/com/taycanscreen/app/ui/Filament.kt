@@ -126,6 +126,8 @@ object FIcons {
     val Pin = stroke("pin", 1.6f, "M12 21s-6.5-6.2-6.5-11.5a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21z M10 9.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0")
     val Recent = stroke("recent", 1.6f, "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0 M12 7v5l3 2")
     val Backspace = stroke("backspace", 1.6f, "M8 5h12v14H8l-6-7z M11 9l6 6 M17 9l-6 6")
+    val Home = stroke("home", 1.6f, "M3 11l9-7 9 7 M5.5 9.5V20h13V9.5 M10 20v-6h4v6")
+    val Work = stroke("work", 1.6f, "M3 8h18v12H3z M8.5 8V5h7v3 M3 13h18")
     val Shift = stroke("shift", 1.6f, "M12 4l8 8h-4.5v7h-7v-7H4z")
 
     // Turn arrows for the next-manoeuvre banner (drawn heavier so they read at a glance).

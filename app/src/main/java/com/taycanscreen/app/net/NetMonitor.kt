@@ -17,6 +17,12 @@ object NetMonitor {
     /** e.g. "4G" or "Wi-Fi", empty when offline. */
     val label: StateFlow<String> = _label.asStateFlow()
 
+    /** The box's connection for the status icon: online, transport and Wi-Fi signal (dBm, if known). */
+    data class Link(val online: Boolean, val transport: String, val rssi: Int?)
+    private val _link = MutableStateFlow(Link(true, "", null))
+    val link: StateFlow<Link> = _link.asStateFlow()
+    private var lastBars = -1
+
     fun init(context: Context) {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
         fun describe(caps: NetworkCapabilities?): String = when {
@@ -36,6 +42,15 @@ object NetMonitor {
             }
             _online.value = ok
             _label.value = label
+            val rssi = if (android.os.Build.VERSION.SDK_INT >= 29 && caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                caps.signalStrength.takeIf { it != NetworkCapabilities.SIGNAL_STRENGTH_UNSPECIFIED && it < 0 }
+            } else null
+            _link.value = Link(ok, describe(caps), rssi)
+            val bars = when { !ok -> 0; rssi == null || rssi >= -60 -> 3; rssi >= -72 -> 2; else -> 1 }
+            if (bars != lastBars) {
+                lastBars = bars
+                AppLog.info("net", "Hotspot icon: $bars bar(s) (${describe(caps)}${rssi?.let { ", $it dBm" } ?: ""})")
+            }
         }
         refresh("start")
         cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {

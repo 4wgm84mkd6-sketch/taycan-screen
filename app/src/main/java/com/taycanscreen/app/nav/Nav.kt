@@ -158,6 +158,10 @@ object Nav {
     private val _recents = MutableStateFlow<List<Place>>(emptyList())
     val recents: StateFlow<List<Place>> = _recents.asStateFlow()
 
+    /** Saved places by kind ("home", "work"), for one-tap routes. */
+    private val _saved = MutableStateFlow<Map<String, Place>>(emptyMap())
+    val saved: StateFlow<Map<String, Place>> = _saved.asStateFlow()
+
     private var app: Context? = null
     private var routeJob: Job? = null
     private var lastSeg = 0
@@ -173,6 +177,26 @@ object Nav {
         _recents.value = json?.let {
             runCatching { Gson().fromJson<List<Place>>(it, object : TypeToken<List<Place>>() {}.type) }.getOrNull()
         } ?: emptyList()
+        val savedJson = context.getSharedPreferences("nav", Context.MODE_PRIVATE).getString("saved", null)
+        _saved.value = savedJson?.let {
+            runCatching { Gson().fromJson<Map<String, Place>>(it, object : TypeToken<Map<String, Place>>() {}.type) }.getOrNull()
+        } ?: emptyMap()
+    }
+
+    /** Saves [place] as Home or Work. */
+    fun save(kind: String, place: Place) {
+        val map = _saved.value + (kind to place)
+        _saved.value = map
+        app?.getSharedPreferences("nav", Context.MODE_PRIVATE)?.edit()?.putString("saved", Gson().toJson(map))?.apply()
+        AppLog.info(TAG, "${kind.replaceFirstChar { it.uppercase() }} set to ${place.name} (${place.detail})")
+    }
+
+    /** Route to Home or Work; false when it isn't set yet. */
+    fun goSaved(kind: String, from: LatLon?): Boolean {
+        val place = _saved.value[kind] ?: return false
+        AppLog.info(TAG, "Quick route: ${kind.replaceFirstChar { it.uppercase() }}")
+        start(place, from ?: lastLatLon)
+        return true
     }
 
     fun clearError() { _error.value = null }

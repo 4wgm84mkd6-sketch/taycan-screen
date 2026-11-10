@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -205,7 +206,7 @@ fun NextTurnBanner(c: DriveColors, modifier: Modifier) {
     }
 }
 
-/** Arrival time, time and distance left, battery on arrival, hand-off, end (v3 board, bottom right). */
+/** Arrival time, time and distance left, battery on arrival, hand-off, end (under the next turn). */
 @Composable
 fun RouteCard(c: DriveColors, modifier: Modifier) {
     val active by Nav.active.collectAsState()
@@ -237,28 +238,34 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
     val soc = readings[com.taycanscreen.app.obd.Taycan.SOC_DISPLAY.id]?.takeIf { now - it.at <= com.taycanscreen.app.obd.Taycan.SOC_DISPLAY.staleMs }?.value
     val range = readings[com.taycanscreen.app.obd.Taycan.RANGE.id]?.takeIf { now - it.at <= com.taycanscreen.app.obd.Taycan.RANGE.staleMs }?.value
     val battery = com.taycanscreen.app.car.Arrival.pct(remaining, soc, range)
-    Row(
-        modifier.background(c.overlay).border(1.dp, c.border).padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        BasicText(Instant.ofEpochMilli(arrive).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm")), style = Filament.num(22.sp, 400, c.text))
-        BasicText(
-            (if (minutes < 60) "${minutes.toInt()} MIN" else "%d H %02d".format((minutes / 60).toInt(), (minutes % 60).toInt())) +
-                " · " + RouteMath.formatDistance(remaining).uppercase(),
-            style = Filament.label(12.sp, c.textDim, 0.08f),
-        )
-        if (battery != null) {
+    // Under the next-turn card, top left (owner, 2026-11-10): arrival and distance, then battery on
+    // arrival with the Waze hand-off and End.
+    Column(modifier.background(c.overlay).border(1.dp, c.border).padding(start = 20.dp, end = 6.dp, top = 12.dp, bottom = 4.dp)) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             BasicText(
-                "${battery.roundToInt().coerceAtLeast(0)}% ON ARRIVAL",
-                style = Filament.label(12.sp, when { battery < 5 -> c.danger; battery < 10 -> c.warn; else -> c.accent }, 0.08f),
+                Instant.ofEpochMilli(arrive).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm")),
+                Modifier.alignByBaseline(), style = Filament.num(26.sp, 400, c.text),
+            )
+            BasicText(
+                (if (minutes < 60) "${minutes.toInt()} MIN" else "%d H %02d".format((minutes / 60).toInt(), (minutes % 60).toInt())) +
+                    " · " + RouteMath.formatDistance(remaining).uppercase(),
+                Modifier.alignByBaseline(), style = Filament.label(13.sp, c.textDim, 0.08f),
             )
         }
-        Box(Modifier.height(48.dp).clickable { handOff(context, a.dest.lat, a.dest.lon) }.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-            BasicText(handoffLabel(context), style = Filament.label(12.sp, c.textDim, 0.12f))
-        }
-        Box(Modifier.height(48.dp).clickable { AppLog.info("nav", "Route ended by the owner"); Nav.stop() }.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-            BasicText("END", style = Filament.label(12.sp, c.textDim, 0.12f))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (battery != null) {
+                BasicText(
+                    "${battery.roundToInt().coerceAtLeast(0)}% ON ARRIVAL",
+                    style = Filament.label(13.sp, when { battery < 5 -> c.danger; battery < 10 -> c.warn; else -> c.accent }, 0.08f),
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            Box(Modifier.height(56.dp).clickable { handOff(context, a.dest.lat, a.dest.lon) }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                BasicText(handoffLabel(context), style = Filament.label(13.sp, c.textDim, 0.12f))
+            }
+            Box(Modifier.height(56.dp).clickable { AppLog.info("nav", "Route ended by the owner"); Nav.stop() }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                BasicText("END", style = Filament.label(13.sp, c.textDim, 0.12f))
+            }
         }
     }
 }

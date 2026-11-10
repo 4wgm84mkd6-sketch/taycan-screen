@@ -60,7 +60,18 @@ private const val TYPING_MAX_MPH = 5.0
  * to the car's position), recent places, and our own large on-screen keyboard.
  */
 @Composable
-fun SearchPanel(c: DriveColors, speedMph: Double?, near: LatLon?, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun SearchPanel(
+    c: DriveColors,
+    speedMph: Double?,
+    near: LatLon?,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** "home" / "work": the next place picked is saved as that instead of routed to. */
+    initialSaveAs: String? = null,
+) {
+    var saveAs by remember(initialSaveAs) { mutableStateOf(initialSaveAs) }
+    val saved by Nav.saved.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var query by remember { mutableStateOf("") }
     var shift by remember { mutableStateOf(true) }
     var numbers by remember { mutableStateOf(false) }
@@ -95,6 +106,12 @@ fun SearchPanel(c: DriveColors, speedMph: Double?, near: LatLon?, onClose: () ->
     }
 
     fun pick(p: Place) {
+        saveAs?.let { kind ->
+            Nav.save(kind, p)
+            android.widget.Toast.makeText(context, "${kind.replaceFirstChar { it.uppercase() }} set to ${p.name}", android.widget.Toast.LENGTH_LONG).show()
+            onClose()
+            return
+        }
         AppLog.info("nav", "Destination picked: ${p.name} (${p.detail})")
         Nav.start(p, near ?: Nav.lastPosition())
         onClose()
@@ -109,12 +126,19 @@ fun SearchPanel(c: DriveColors, speedMph: Double?, near: LatLon?, onClose: () ->
             ) { Icon(FIcons.Close, "Close search", tint = c.text, modifier = Modifier.size(28.dp)) }
         }
         val message = when {
+            saveAs != null -> null
             !online -> "No internet right now. Search and routes need a connection."
             searchError != null -> searchError
             near == null -> "Waiting for GPS: results and routes start from the car's position."
             else -> null
         }
         if (message != null) BasicText(message, style = Filament.text(16.sp, 500, c.warn))
+        saveAs?.let { kind ->
+            BasicText(
+                "Set ${kind.replaceFirstChar { it.uppercase() }}: search for the address, or pick a recent place.",
+                style = Filament.text(18.sp, 600, c.accent),
+            )
+        }
 
         Box(Modifier.fillMaxWidth().weight(1f)) {
             val showRecents = query.trim().length < 3
@@ -131,6 +155,12 @@ fun SearchPanel(c: DriveColors, speedMph: Double?, near: LatLon?, onClose: () ->
                         Modifier.padding(start = 4.dp, bottom = 2.dp),
                         style = Filament.label(13.sp, c.textFaint, 0.18f),
                     )
+                }
+                // Home and Work for one tap (owner, 2026-11-10). EDIT picks a new place.
+                if (showRecents && saveAs == null) {
+                    items(listOf("home", "work"), key = { "saved-$it" }) { kind ->
+                        SavedRow(kind, saved[kind], near, c, onGo = { saved[kind]?.let { pick(it) } ?: run { saveAs = kind } }, onEdit = { saveAs = kind })
+                    }
                 }
                 items(list, key = { "${it.name}|${it.lat}|${it.lon}" }) { p ->
                     PlaceRow(p, if (showRecents) FIcons.Recent else FIcons.Pin, near, c) { pick(p) }
@@ -193,6 +223,35 @@ private fun SearchField(query: String, c: DriveColors, modifier: Modifier, onCle
             Box(Modifier.size(56.dp).clickable(onClick = onClear), contentAlignment = Alignment.Center) {
                 Icon(FIcons.Close, "Clear", tint = c.textDim, modifier = Modifier.size(24.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors, onGo: () -> Unit, onEdit: () -> Unit) {
+    val title = kind.replaceFirstChar { it.uppercase() }
+    Row(
+        Modifier.fillMaxWidth().height(72.dp).background(c.raised, Filament.CutS).clickable(onClick = onGo).padding(start = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(if (kind == "home") FIcons.Home else FIcons.Work, null, tint = c.accent, modifier = Modifier.size(28.dp))
+        Column(Modifier.weight(1f)) {
+            BasicText(title, style = Filament.text(21.sp, 600, c.text), maxLines = 1)
+            BasicText(
+                place?.let { listOf(it.name, it.detail).filter { s -> s.isNotBlank() }.joinToString(" · ") } ?: "Tap to set",
+                style = Filament.text(16.sp, 400, if (place == null) c.accent else c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (place != null) {
+            near?.let {
+                BasicText(RouteMath.formatDistance(RouteMath.metres(it, LatLon(place.lat, place.lon))), style = Filament.label(15.sp, c.textDim, 0f))
+            }
+            Box(Modifier.fillMaxHeight().width(96.dp).clickable(onClick = onEdit), contentAlignment = Alignment.Center) {
+                BasicText("EDIT", style = Filament.label(14.sp, c.textDim, 0.12f))
+            }
+        } else {
+            Spacer(Modifier.width(8.dp))
         }
     }
 }

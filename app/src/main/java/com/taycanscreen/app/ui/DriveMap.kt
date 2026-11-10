@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -90,7 +93,24 @@ import kotlin.math.sin
  * Map size (owner, 2026-11-09: Porsche's map reads better). The vector map is drawn at
  * screen density × this, so text and roads grow and stay sharp.
  */
-private enum class MapSize(val scale: Float, val short: String) { Large(2.1f, "L"), Medium(1.6f, "M"), Small(1.2f, "S") }
+private data class MapSize(val level: Int) {
+    /** Level 1–10 (owner, 2026-11-10: a custom size instead of L/M/S). 6 = the old Large. */
+    val scale: Float get() = 0.9f + 0.2f * level
+    val name: String get() = "$level (×%.1f)".format(scale)
+
+    companion object {
+        const val MIN = 1
+        const val MAX = 10
+        fun load(prefs: android.content.SharedPreferences): MapSize {
+            val lv = prefs.getInt("map_level", -1).takeIf { it in MIN..MAX }
+                ?: when (prefs.getString("map_size", "Large")) { "Medium" -> 4; "Small" -> 2; else -> 6 }
+            return MapSize(lv)
+        }
+    }
+}
+
+/** Map buttons (owner, 2026-11-10: bigger). */
+private val MAP_BTN = 80.dp
 
 /** Where the car marker is drawn and how it's turned on screen (updated every frame). */
 @Stable
@@ -143,13 +163,31 @@ fun MapArea(
     targets: DriveTargets,
     modifier: Modifier,
     onSearch: () -> Unit = {},
+    /** Home / Work tapped (or the search box pulled down: "home"). */
+    onSaved: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
     var northUp by remember { mutableStateOf(prefs.getBoolean("north_up", false)) }
     var satellite by remember { mutableStateOf(prefs.getString("map_style", "map") == "satellite") }
     var mapSize by remember {
-        mutableStateOf(runCatching { MapSize.valueOf(prefs.getString("map_size", "Large")!!) }.getOrDefault(MapSize.Large))
+        mutableStateOf(MapSize.load(prefs))
+    }
+    // Custom size: tap Aa for − / + (the map is rebuilt once the taps stop).
+    var sizeOpen by remember { mutableStateOf(false) }
+    var pendingLevel by remember { mutableIntStateOf(mapSize.level) }
+    var sizeTouchedAt by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(pendingLevel) {
+        if (pendingLevel == mapSize.level) return@LaunchedEffect
+        kotlinx.coroutines.delay(700)
+        mapSize = MapSize(pendingLevel)
+        prefs.edit().putInt("map_level", pendingLevel).apply()
+        AppLog.info("map", "Map size ${mapSize.name}")
+    }
+    LaunchedEffect(sizeOpen, sizeTouchedAt) {
+        if (!sizeOpen) return@LaunchedEffect
+        kotlinx.coroutines.delay(6_000)
+        sizeOpen = false
     }
     var following by remember { mutableStateOf(true) }
     var lastTouchAt by remember { mutableLongStateOf(0L) }
@@ -243,12 +281,13 @@ fun MapArea(
         DirectionLabels(gps, northUp, c)
 
         Column(
-            Modifier.align(Alignment.TopEnd).padding(top = 28.dp, end = 20.dp),
+            Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.End,
         ) {
             Column(Modifier.background(c.overlay, Filament.CutS).insetLine(c.border)) {
                 MapButton(FIcons.Plus, "Zoom in", c.text) { MapHolder.map?.animateCamera(CameraUpdateFactory.zoomIn()) }
-                Box(Modifier.padding(horizontal = 16.dp).width(32.dp).height(1.dp).background(c.border))
+                Box(Modifier.padding(horizontal = 20.dp).width(40.dp).height(1.dp).background(c.border))
                 MapButton(FIcons.Minus, "Zoom out", c.text) { MapHolder.map?.animateCamera(CameraUpdateFactory.zoomOut()) }
             }
             NorthButton(northUp, gps, c) {
@@ -256,22 +295,36 @@ fun MapArea(
                 prefs.edit().putBoolean("north_up", northUp).apply()
                 AppLog.info("map", if (northUp) "North up" else "Heading up")
             }
-            // Map size: L (Porsche-like, default) → M → S.
-            Column(
-                Modifier.size(64.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
-                    mapSize = MapSize.entries[(mapSize.ordinal + 1) % MapSize.entries.size]
-                    prefs.edit().putString("map_size", mapSize.name).apply()
-                    AppLog.info("map", "Map size ${mapSize.name}")
-                },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                BasicText("Aa", style = Filament.text(24.sp, 600, c.accent))
-                BasicText("SIZE ${mapSize.short}", style = Filament.label(11.sp, c.textDim, 0.08f))
+            // Map size, custom (owner, 2026-11-10): tap Aa, then − / + (levels 1–10).
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (sizeOpen) {
+                    Row(Modifier.height(MAP_BTN).background(c.overlay, Filament.CutS).insetLine(c.accentLine), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(MAP_BTN).clickable { pendingLevel = (pendingLevel - 1).coerceAtLeast(MapSize.MIN); sizeTouchedAt = System.currentTimeMillis() },
+                            contentAlignment = Alignment.Center,
+                        ) { BasicText("A−", style = Filament.text(22.sp, 600, if (pendingLevel > MapSize.MIN) c.text else c.textFaint)) }
+                        BasicText("$pendingLevel", Modifier.width(44.dp), style = Filament.num(28.sp, 500, c.accent).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                        Box(
+                            Modifier.size(MAP_BTN).clickable { pendingLevel = (pendingLevel + 1).coerceAtMost(MapSize.MAX); sizeTouchedAt = System.currentTimeMillis() },
+                            contentAlignment = Alignment.Center,
+                        ) { BasicText("A+", style = Filament.text(26.sp, 600, if (pendingLevel < MapSize.MAX) c.text else c.textFaint)) }
+                    }
+                }
+                Column(
+                    Modifier.size(MAP_BTN).background(c.overlay, Filament.CutS).insetLine(if (sizeOpen) c.accentLine else c.border).clickable {
+                        sizeOpen = !sizeOpen
+                        sizeTouchedAt = System.currentTimeMillis()
+                    },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    BasicText("Aa", style = Filament.text(28.sp, 600, c.accent))
+                    BasicText("SIZE ${mapSize.level}", style = Filament.label(12.sp, c.textDim, 0.08f))
+                }
             }
             // Map / satellite.
             Column(
-                Modifier.size(64.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
+                Modifier.size(MAP_BTN).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
                     satellite = !satellite
                     prefs.edit().putString("map_style", if (satellite) "satellite" else "map").apply()
                     AppLog.info("map", if (satellite) "Satellite view" else "Map view")
@@ -279,8 +332,8 @@ fun MapArea(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Icon(FIcons.Layers, if (satellite) "Satellite (tap for map)" else "Map (tap for satellite)", tint = c.accent, modifier = Modifier.size(26.dp))
-                BasicText(if (satellite) "SAT" else "MAP", Modifier.padding(top = 2.dp), style = Filament.label(11.sp, c.textDim, 0.08f))
+                Icon(FIcons.Layers, if (satellite) "Satellite (tap for map)" else "Map (tap for satellite)", tint = c.accent, modifier = Modifier.size(32.dp))
+                BasicText(if (satellite) "SAT" else "MAP", Modifier.padding(top = 2.dp), style = Filament.label(12.sp, c.textDim, 0.08f))
             }
             Box(Modifier.background(c.overlay, Filament.CutS).insetLine(c.border)) {
                 MapButton(FIcons.Recenter, "Recenter", c.text) {
@@ -295,19 +348,59 @@ fun MapArea(
         // "Search for destination" box, top left (owner, 2026-11-09, like Porsche's); the turn card takes
         // its place during a route.
         val activeRoute by com.taycanscreen.app.nav.Nav.active.collectAsState()
-        if (activeRoute == null) {
-            Row(
-                Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 28.dp).width(420.dp).height(72.dp)
-                    .background(c.overlay).insetLine(c.border).clickable(onClick = onSearch).padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Icon(FIcons.Search, null, tint = c.accent, modifier = Modifier.size(30.dp))
-                BasicText("Search for destination", style = Filament.text(20.sp, 500, c.textDim), maxLines = 1)
+        val saved by com.taycanscreen.app.nav.Nav.saved.collectAsState()
+        // Top left: the search box with Home and Work (owner, 2026-11-10; pull the box down to go home),
+        // or during a route the next turn with the trip details under it.
+        Column(Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (activeRoute == null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    var pull by remember { mutableFloatStateOf(0f) }
+                    val pullDp = with(LocalDensity.current) { pull.toDp() }
+                    Row(
+                        Modifier.offset(y = (pullDp * 0.5f).coerceAtMost(48.dp)).width(420.dp).height(72.dp)
+                            .background(c.overlay).insetLine(if (pull > 90f) c.accentLine else c.border)
+                            .pointerInput(Unit) {
+                                detectVerticalDragGestures(
+                                    onDragStart = { pull = 0f },
+                                    onDragEnd = {
+                                        if (pull > 90f * density) onSaved("home")
+                                        pull = 0f
+                                    },
+                                    onDragCancel = { pull = 0f },
+                                    onVerticalDrag = { ch, dy -> ch.consume(); pull = (pull + dy).coerceAtLeast(0f) },
+                                )
+                            }
+                            .clickable(onClick = onSearch).padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        val ready = pull > 90f * LocalDensity.current.density
+                        Icon(if (pull > 0f) FIcons.Home else FIcons.Search, null, tint = c.accent, modifier = Modifier.size(30.dp))
+                        BasicText(
+                            when {
+                                pull <= 0f -> "Search for destination"
+                                saved["home"] == null -> "Pull down to set Home"
+                                ready -> "Release to go home"
+                                else -> "Pull down to go home"
+                            },
+                            style = Filament.text(20.sp, 500, if (ready) c.accent else c.textDim), maxLines = 1,
+                        )
+                    }
+                    for (kind in listOf("home", "work")) {
+                        Column(
+                            Modifier.size(72.dp).background(c.overlay).insetLine(c.border).clickable { onSaved(kind) },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(if (kind == "home") FIcons.Home else FIcons.Work, if (kind == "home") "Home" else "Work", tint = if (saved[kind] != null) c.accent else c.textFaint, modifier = Modifier.size(30.dp))
+                            BasicText(kind.uppercase(), Modifier.padding(top = 2.dp), style = Filament.label(11.sp, c.textDim, 0.08f))
+                        }
+                    }
+                }
             }
+            NextTurnBanner(c, Modifier.width(460.dp))
+            RouteCard(c, Modifier.width(460.dp))
         }
-        NextTurnBanner(c, Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 28.dp))
-        RouteCard(c, Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 28.dp))
 
         BasicText(
             if (satellite) MapTheme.SATELLITE_ATTRIBUTION else MapTheme.ATTRIBUTION,
@@ -541,14 +634,14 @@ private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: Gps
 @Composable
 private fun NorthButton(northUp: Boolean, gps: GpsInfo, c: DriveColors, onToggle: () -> Unit) {
     Column(
-        Modifier.size(64.dp).background(c.overlay, Filament.CutS).insetLine(c.border).clickable(onClick = onToggle),
+        Modifier.size(MAP_BTN).background(c.overlay, Filament.CutS).insetLine(c.border).clickable(onClick = onToggle),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         // The compass needle points to north: up in north-up, turned with the map in heading-up.
         Icon(
             FIcons.Compass, if (northUp) "North up (tap for heading up)" else "Heading up (tap for north up)",
-            tint = c.accent, modifier = Modifier.size(26.dp).rotate(if (northUp) 0f else gps.mapOrientation),
+            tint = c.accent, modifier = Modifier.size(32.dp).rotate(if (northUp) 0f else gps.mapOrientation),
         )
         BasicText(if (northUp) "N UP" else "HDG", Modifier.padding(top = 2.dp), style = Filament.label(12.sp, c.textDim, 0.08f))
     }
@@ -711,8 +804,8 @@ private inline fun DrawScope.scaleAround(s: Float, pivot: Offset, block: DrawSco
 
 @Composable
 private fun MapButton(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
-    Box(Modifier.size(64.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(26.dp))
+    Box(Modifier.size(MAP_BTN).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(34.dp))
     }
 }
 
