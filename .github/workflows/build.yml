@@ -101,6 +101,26 @@ jobs:
             cp app/build/outputs/apk/release/app-release.apk taycan-screen.apk
           fi
 
+      # Pictures of the screens with fixed values, drawn here so changes can be looked at before they
+      # reach the car. Only on work branches (never delays a release) and never fails the build.
+      # The pictures go to the "screenshots" branch.
+      - name: Screen pictures
+        if: github.ref != 'refs/heads/main' && github.event_name == 'push'
+        continue-on-error: true
+        timeout-minutes: 12
+        run: |
+          gradle --no-daemon testReleaseUnitTest -Pscreens --tests '*ScreensTest*' -PversionCode=$VC -PgithubRepo=${{ github.repository }} || echo "::warning::Some screen pictures failed"
+          ls -la app/build/outputs/roborazzi/ || true
+          mkdir -p "$RUNNER_TEMP/shots" && cp app/build/outputs/roborazzi/*.png "$RUNNER_TEMP/shots/" || exit 0
+          cp app/build/reports/tests/testReleaseUnitTest/classes/*ScreensTest*.html "$RUNNER_TEMP/shots/report.html" 2>/dev/null || true
+          cd "$RUNNER_TEMP/shots"
+          git init -q -b screenshots
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Screen pictures for ${{ github.ref_name }} @ ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots
+
       - name: Verify signature
         if: steps.key.outputs.ready == 'true'
         run: |

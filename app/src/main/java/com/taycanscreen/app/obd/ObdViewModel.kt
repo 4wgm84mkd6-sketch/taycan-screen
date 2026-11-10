@@ -82,6 +82,12 @@ object ObdEngine {
     private val _lowVolts = MutableStateFlow<Reading?>(null)
     val lowVolts: StateFlow<Reading?> = _lowVolts.asStateFlow()
 
+    /** Screenshot tests only: puts fixed values on screen without a car. */
+    internal fun preview(readings: Map<String, Reading>, status: ObdStatus) {
+        _readings.value = readings
+        _status.value = status
+    }
+
     private var job: Job? = null
     /** A loop that was told to stop but may still be inside a Bluetooth read; the next one waits for it. */
     private var stopping: Job? = null

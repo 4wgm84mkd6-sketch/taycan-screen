@@ -72,6 +72,17 @@ android {
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // Screen pictures (ScreensTest) are drawn only when asked for with -Pscreens, so a release
+            // build never waits for them.
+            if (project.hasProperty("screens")) {
+                it.systemProperty("roborazzi.test.record", "true")
+                it.maxHeapSize = "2g"
+            } else {
+                it.exclude("**/ScreensTest*")
+            }
+        }
     }
     lint {
         checkReleaseBuilds = false
@@ -98,4 +109,10 @@ dependencies {
     // Spotify Auth library: the one-time "allow Taycan Screen" screen (Apache 2.0).
     implementation("com.spotify.android:auth:2.1.0")
     testImplementation("junit:junit:4.13.2")
+    // Screen pictures drawn on the build server (Robolectric + Roborazzi), see ScreensTest.
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.40.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.40.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
 }

@@ -45,6 +45,11 @@ object SpeedLimit {
     private val _limit = MutableStateFlow<Limit?>(null)
     val limit: StateFlow<Limit?> = _limit.asStateFlow()
 
+    /** Screenshot tests only. */
+    internal fun preview(mph: Int?) {
+        _limit.value = mph?.let { Limit(it, null, 0L) }
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var busy = false
     private var lastAskAt = 0L

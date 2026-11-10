@@ -51,6 +51,12 @@ object SpotifyController {
     private val _artwork = MutableStateFlow<Bitmap?>(null)
     val artwork: StateFlow<Bitmap?> = _artwork.asStateFlow()
 
+    /** Screenshot tests only. */
+    internal fun preview(status: Status, playing: NowPlaying?) {
+        _status.value = status
+        _nowPlaying.value = playing
+    }
+
     private lateinit var appContext: Context
     private var remote: SpotifyAppRemote? = null
     private var connecting = false

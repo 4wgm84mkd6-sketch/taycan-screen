@@ -440,6 +440,10 @@ private fun VectorMap(
     followingState: androidx.compose.runtime.State<Boolean>,
     onUserMove: () -> Unit,
 ) {
+    if (UiEvents.preview) {
+        Box(Modifier.fillMaxSize().background(if (c.isNight) Color(0xFF15181A) else Color(0xFFE9E7E2)))
+        return
+    }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val mapView = remember {
