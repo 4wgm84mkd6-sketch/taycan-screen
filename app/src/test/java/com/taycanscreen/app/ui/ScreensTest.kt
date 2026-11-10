@@ -1,9 +1,16 @@
 package com.taycanscreen.app.ui
 
 import android.app.Application
+import android.content.ComponentName
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
+import org.junit.Rule
+import org.junit.rules.ExternalResource
+import org.robolectric.Shadows.shadowOf
 import com.taycanscreen.app.car.SpeedLimit
 import com.taycanscreen.app.music.SpotifyController
 import com.taycanscreen.app.obd.LinkState
@@ -33,6 +40,18 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w1068dp-h480dp-land-hdpi", application = Application::class)
 class ScreensTest {
+    /** The test screen's host activity isn't in the app's manifest; tell Robolectric about it. */
+    @get:Rule(order = 0)
+    val registerActivity = object : ExternalResource() {
+        override fun before() {
+            val app = ApplicationProvider.getApplicationContext<Application>()
+            shadowOf(app.packageManager).addActivityIfNotPresent(ComponentName(app.packageName, ComponentActivity::class.java.name))
+        }
+    }
+
+    @get:Rule(order = 1)
+    val rule = createAndroidComposeRule<ComponentActivity>()
+
     private fun reading(sig: Signal, value: Double) = sig.id to Reading(value, "", Mono.ms())
 
     private fun driving(speedKmh: Double = 75.6, gear: Double = 8.0, amps: Double = -62.0) = mapOf(
@@ -62,7 +81,12 @@ class ScreensTest {
 
     private fun shoot(name: String, night: Boolean = true, panel: String? = null) {
         UiEvents.openPanel.value = panel
-        captureRoboImage("build/outputs/roborazzi/$name.png") { Drive(night) }
+        // The screens have animations that never end (scrolling titles, the GPS reticle), so time is
+        // stepped by hand: draw, let 0.7 s pass (panels finish sliding in), take the picture.
+        rule.mainClock.autoAdvance = false
+        rule.setContent { Drive(night) }
+        rule.mainClock.advanceTimeBy(700)
+        rule.onRoot().captureRoboImage("build/outputs/roborazzi/$name.png")
     }
 
     @Composable
