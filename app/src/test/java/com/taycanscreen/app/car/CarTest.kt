@@ -30,6 +30,25 @@ class CarTest {
         assertEquals(25 to "Piikoi Street", SpeedLimit.pick(json, car, 0f))
     }
 
+    @Test fun offlineSpeedLimits() {
+        // Same two roads as above, in the bundled-file format (1e-5 degree integers, deltas after the first point).
+        val lines = sequenceOf(
+            "# test data",
+            "35\tKapiolani Boulevard\t2129009,-15784000,0,1000",
+            "25\tPiikoi Street\t2128500,-15783490,1000,0",
+            "bad line",
+        )
+        val idx = SpeedLimit.parseIndex(lines)
+        assertEquals(2, idx.roads.size)
+        assertEquals("test data", idx.header)
+        val car = LatLon(21.2900, -157.8350)
+        assertEquals(35 to "Kapiolani Boulevard", SpeedLimit.choose(idx.near(car), car, 90f))
+        assertEquals(25 to "Piikoi Street", SpeedLimit.choose(idx.near(car), car, 0f))
+        // Far from both roads: nothing (shows no limit rather than a wrong one).
+        val away = LatLon(21.3100, -157.8600)
+        assertNull(SpeedLimit.choose(idx.near(away), away, 0f))
+    }
+
     @Test fun arrivalBattery() {
         // 60 % with 150 mi range, 30 mi left → 48 %.
         assertEquals(48.0, Arrival.pct(30 * 1609.344, 60.0, 150.0)!!, 0.01)

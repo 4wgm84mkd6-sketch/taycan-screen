@@ -12,6 +12,7 @@ class TaycanApp : Application() {
         com.taycanscreen.app.net.NetMonitor.init(this)
         com.taycanscreen.app.nav.Nav.init(this)
         com.taycanscreen.app.car.TripComputer.start(this)
+        com.taycanscreen.app.car.SpeedLimit.init(this)
         AppLog.info(
             "app",
             "Started Taycan Screen build ${BuildConfig.VERSION_CODE} (${BuildConfig.VERSION_NAME}), " +

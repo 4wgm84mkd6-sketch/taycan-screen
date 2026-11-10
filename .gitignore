@@ -10,3 +10,6 @@ captures/
 *.jks
 *.keystore
 keystore.b64
+# Built by CI from OpenStreetMap (tools/speedlimits.py)
+app/src/main/assets/speedlimits.txt
+osm/

@@ -21,9 +21,13 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 
 /**
- * Speed limit of the road the car is on, from OpenStreetMap "maxspeed" tags via the free Overpass API
- * (overpass-api.de). Asked at most every 6 s and only after the car moved ~100 m; the nearest road
- * within 30 m that runs the way the car is heading wins. Coverage depends on OSM mapping.
+ * Speed limit of the road the car is on, from OpenStreetMap "maxspeed" tags. The nearest road within
+ * 30 m that runs the way the car is heading wins. Coverage depends on OSM mapping.
+ *
+ * Offline first (build 155): CI bundles every Hawaii road with a limit as assets/speedlimits.txt
+ * (tools/speedlimits.py), looked up locally on each fix. Only if that file is missing does it ask the
+ * public Overpass API online (at most every 6 s, after the car moved ~100 m); those servers timed out
+ * from the car on every try in builds 149–154.
  */
 object SpeedLimit {
     private const val TAG = "limit"
@@ -50,12 +54,94 @@ object SpeedLimit {
     private var backoffUntil = 0L
     private var failures = 0
 
+    /** A road with a limit: mph, name and its points. */
+    class Road(val mph: Int, val name: String?, val geom: List<LatLon>)
+
+    /** Offline roads in a grid of [CELL]-degree cells (about 220 m), so a lookup only checks nearby roads. */
+    class Index(val roads: List<Road>, private val cells: Map<Long, IntArray>, val header: String) {
+        fun near(p: LatLon): List<Road> {
+            val (cy, cx) = cellOf(p.lat, p.lon)
+            val ids = HashSet<Int>()
+            for (dy in -1..1) for (dx in -1..1) cells[key(cy + dy, cx + dx)]?.let { a -> a.forEach { ids += it } }
+            return ids.map { roads[it] }
+        }
+    }
+
+    private const val CELL = 0.002
+    private fun cellOf(lat: Double, lon: Double) = Math.floor(lat / CELL).toInt() to Math.floor(lon / CELL).toInt()
+    private fun key(y: Int, x: Int) = (y.toLong() shl 32) or (x.toLong() and 0xffffffffL)
+
+    /** Parses assets/speedlimits.txt (format in tools/speedlimits.py). */
+    fun parseIndex(lines: Sequence<String>): Index {
+        val roads = ArrayList<Road>()
+        val cells = HashMap<Long, MutableList<Int>>()
+        var header = ""
+        for (line in lines) {
+            if (line.startsWith("#")) { header = line.removePrefix("#").trim(); continue }
+            val parts = line.split('\t')
+            if (parts.size < 3) continue
+            val mph = parts[0].toIntOrNull() ?: continue
+            val nums = parts[2].split(',').mapNotNull { it.toIntOrNull() }
+            if (nums.size < 4 || nums.size % 2 != 0) continue
+            val geom = ArrayList<LatLon>(nums.size / 2)
+            var lat = 0; var lon = 0
+            for (i in nums.indices step 2) {
+                lat = if (i == 0) nums[0] else lat + nums[i]
+                lon = if (i == 0) nums[1] else lon + nums[i + 1]
+                geom += LatLon(lat / 1e5, lon / 1e5)
+            }
+            val id = roads.size
+            roads += Road(mph, parts[1].ifBlank { null }, geom)
+            val seen = HashSet<Long>()
+            for (i in 0 until geom.size - 1) {
+                val (y1, x1) = cellOf(geom[i].lat, geom[i].lon)
+                val (y2, x2) = cellOf(geom[i + 1].lat, geom[i + 1].lon)
+                for (y in minOf(y1, y2)..maxOf(y1, y2)) for (x in minOf(x1, x2)..maxOf(x1, x2)) {
+                    val k = key(y, x)
+                    if (seen.add(k)) cells.getOrPut(k) { ArrayList(2) } += id
+                }
+            }
+        }
+        return Index(roads, cells.mapValues { it.value.toIntArray() }, header)
+    }
+
+    @Volatile private var offline: Index? = null
+    @Volatile private var offlineChecked = false
+
+    /** Loads the bundled speed limits in the background (app start). */
+    fun init(context: android.content.Context) {
+        val app = context.applicationContext
+        scope.launch {
+            val t0 = System.currentTimeMillis()
+            try {
+                val idx = app.assets.open("speedlimits.txt").bufferedReader().useLines { parseIndex(it) }
+                offline = idx
+                AppLog.info(TAG, "Offline speed limits: ${idx.roads.size} roads loaded in ${System.currentTimeMillis() - t0} ms (${idx.header})")
+            } catch (e: java.io.FileNotFoundException) {
+                AppLog.warn(TAG, "No offline speed limits in this build; asking Overpass online")
+            } catch (e: Exception) {
+                AppLog.warn(TAG, "Offline speed limits unreadable (${e.javaClass.simpleName}: ${e.message}); asking Overpass online")
+            } finally {
+                offlineChecked = true
+            }
+        }
+    }
+
+    private var offlineLastAt = 0L
+
     /** From the map on each fix (main thread). */
     fun onLocation(lat: Double, lon: Double, heading: Float?, speedKmh: Double?) {
         val now = System.currentTimeMillis()
         val p = LatLon(lat, lon)
         // Stale after 2 minutes without a fresh answer (e.g. lost signal).
         _limit.value?.let { if (now - it.at > 120_000) _limit.value = null }
+        if (!offlineChecked) return
+        offline?.let { idx ->
+            if (now - offlineLastAt < 800) return
+            offlineLastAt = now
+            publish(choose(idx.near(p), p, heading), now)
+            return
+        }
         if (busy || now - lastAskAt < 6_000 || now < backoffUntil) return
         if (!com.taycanscreen.app.net.NetMonitor.online.value) return
         val moved = lastAskPos?.let { RouteMath.metres(it, p) } ?: Double.MAX_VALUE
@@ -67,17 +153,7 @@ object SpeedLimit {
         scope.launch {
             try {
                 val json = query(p)
-                val found = pick(json, p, heading)
-                if (found != null) {
-                    misses = 0
-                    val prev = _limit.value
-                    _limit.value = Limit(found.first, found.second, System.currentTimeMillis())
-                    if (prev?.mph != found.first || prev.road != found.second) {
-                        AppLog.info(TAG, "${found.first} mph on ${found.second ?: "unnamed road"}")
-                    }
-                } else if (++misses >= 2) {
-                    _limit.value = null
-                }
+                publish(pick(json, p, heading), System.currentTimeMillis())
                 failures = 0
             } catch (e: Exception) {
                 failures++
@@ -86,6 +162,21 @@ object SpeedLimit {
             } finally {
                 busy = false
             }
+        }
+    }
+
+    /** A found limit shows at once; two misses in a row clear it (no stale values). */
+    private fun publish(found: Pair<Int, String?>?, now: Long) {
+        if (found != null) {
+            misses = 0
+            val prev = _limit.value
+            _limit.value = Limit(found.first, found.second, now)
+            if (prev?.mph != found.first || prev.road != found.second) {
+                AppLog.info(TAG, "${found.first} mph on ${found.second ?: "unnamed road"}")
+            }
+        } else if (++misses >= 2) {
+            if (_limit.value != null) AppLog.info(TAG, "No speed limit mapped here")
+            _limit.value = null
         }
     }
 
@@ -114,7 +205,7 @@ object SpeedLimit {
                     conn.disconnect()
                 }
             } catch (e: Exception) {
-                AppLog.warn(TAG, "${URL(url).host}: ${e.javaClass.simpleName} after ${System.currentTimeMillis() - t0} ms")
+                AppLog.warn(TAG, "${URL(url).host}: ${e.javaClass.simpleName} (${e.message}) after ${System.currentTimeMillis() - t0} ms")
                 last = e
             }
         }
@@ -132,17 +223,27 @@ object SpeedLimit {
     /** Nearest road with a limit, preferring one that runs along the car's heading. (mph, road name) */
     fun pick(json: String, p: LatLon, heading: Float?): Pair<Int, String?>? {
         val elements = JsonParser.parseString(json).asJsonObject.getAsJsonArray("elements") ?: return null
-        var best: Pair<Int, String?>? = null
-        var bestScore = Double.MAX_VALUE
-        for (e in elements) {
+        val roads = elements.mapNotNull { e ->
             val o = e.asJsonObject
-            if (o.get("type")?.asString != "way") continue
-            val tags = o.getAsJsonObject("tags") ?: continue
-            val mph = parseMaxspeed(tags.get("maxspeed")?.asString) ?: continue
+            if (o.get("type")?.asString != "way") return@mapNotNull null
+            val tags = o.getAsJsonObject("tags") ?: return@mapNotNull null
+            val mph = parseMaxspeed(tags.get("maxspeed")?.asString) ?: return@mapNotNull null
             val geom = o.getAsJsonArray("geometry")?.map {
                 val g = it.asJsonObject
                 LatLon(g.get("lat").asDouble, g.get("lon").asDouble)
-            } ?: continue
+            } ?: return@mapNotNull null
+            Road(mph, tags.get("name")?.asString, geom)
+        }
+        return choose(roads, p, heading)
+    }
+
+    /** Nearest of [roads] within 30 m, preferring one that runs along the car's heading. */
+    fun choose(roads: List<Road>, p: LatLon, heading: Float?): Pair<Int, String?>? {
+        var best: Pair<Int, String?>? = null
+        var bestScore = Double.MAX_VALUE
+        for (r in roads) {
+            val geom = r.geom
+            val mph = r.mph
             if (geom.size < 2) continue
             val cum = RouteMath.cumulative(geom)
             val pr = RouteMath.project(geom, cum, p)
@@ -157,7 +258,7 @@ object SpeedLimit {
             }
             if (score < bestScore) {
                 bestScore = score
-                best = mph to tags.get("name")?.asString
+                best = mph to r.name
             }
         }
         return best

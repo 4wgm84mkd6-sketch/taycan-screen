@@ -67,6 +67,31 @@ jobs:
           echo "SIGNING_KEY_ALIAS=taycan" >> "$GITHUB_ENV"
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
+      # Speed limits for the map, built into the APK so they work without internet (the public
+      # Overpass servers time out from the car). Source: Geofabrik's daily OpenStreetMap extract of
+      # Hawaii. If this step fails the app falls back to asking Overpass online.
+      - name: Day stamp
+        id: day
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: osm/hawaii-latest.osm.pbf
+          key: osm-hawaii-${{ steps.day.outputs.day }}
+
+      - name: Offline speed limits
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y -qq osmium-tool > /dev/null
+          mkdir -p osm app/src/main/assets
+          [ -s osm/hawaii-latest.osm.pbf ] || curl -fsSL --retry 3 -o osm/hawaii-latest.osm.pbf \
+            https://download.geofabrik.de/north-america/us/hawaii-latest.osm.pbf
+          STAMP=$(osmium fileinfo -g header.option.osmosis_replication_timestamp osm/hawaii-latest.osm.pbf || true)
+          osmium tags-filter --overwrite osm/hawaii-latest.osm.pbf w/maxspeed -o osm/maxspeed.osm.pbf
+          osmium export --overwrite osm/maxspeed.osm.pbf -f geojsonseq --geometry-types=linestring -o osm/maxspeed.geojsonseq
+          python3 tools/speedlimits.py osm/maxspeed.geojsonseq app/src/main/assets/speedlimits.txt "${STAMP:-unknown}"
+          ls -la app/src/main/assets/speedlimits.txt
+
       - name: Build release APK
         run: |
           VC=$((100 + VERSION_CODE))
