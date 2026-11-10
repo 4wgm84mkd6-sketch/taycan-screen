@@ -443,7 +443,7 @@ private fun V3Panel(
             ) {
                 BatteryIcon(soc?.x, col, c, Modifier.size(48.dp, 26.dp))
                 BasicText(
-                    soc?.x?.roundToInt()?.let { "$it%" } ?: NO_DATA,
+                    soc?.x?.roundToInt()?.let { "$it%" } ?: "–",
                     Modifier.padding(start = 8.dp).alpha(if (soc?.dim == true) 0.45f else 1f),
                     style = Filament.num(18.sp, 500, if (soc == null) c.textFaint else col),
                 )
@@ -502,7 +502,8 @@ private fun V3Panel(
                             BasicText("${limit.mph}", style = Filament.num(38.sp, 500, if (over) c.warn else c.text))
                         }
                     }
-                    BasicText(v.gear ?: NO_DATA, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
+                    if (v.gear != null) BasicText(v.gear, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
+                    else Box(Modifier.size(34.dp, 38.dp), contentAlignment = Alignment.Center) { Missing(c, 24.dp) }
                     BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(15.sp, c.textDim, 0.1f))
                 }
             }
@@ -595,13 +596,18 @@ private fun SpeedNumber(speed: V?, c: DriveColors, modifier: Modifier) {
         had = true
     }
     val text by remember { derivedStateOf { shown.value.roundToInt().toString() } }
-    BasicText(
-        // No speed yet: a short faint dash (an em dash at this size is a heavy bar).
-        if (speed == null) "–" else text,
-        modifier,
-        style = Filament.num(168.sp, 300, if (speed == null) c.textFaint else c.text).copy(letterSpacing = (-8).sp),
-        maxLines = 1,
-    )
+    if (speed == null) {
+        // No speed yet: one thin quiet line, the same mark every missing value uses.
+        Box(modifier.height(124.dp), contentAlignment = Alignment.CenterStart) { Missing(c, 56.dp) }
+        return
+    }
+    BasicText(text, modifier, style = Filament.num(168.sp, 300, c.text).copy(letterSpacing = (-8).sp), maxLines = 1)
+}
+
+/** The mark for a value the car hasn't given yet: a thin, quiet line (never a heavy dash, never an old number). */
+@Composable
+private fun Missing(c: DriveColors, width: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.size(width, 3.dp).background(c.lineStrong))
 }
 
 /** One short line under the power bar about the car link; amber only when something needs attention. */
@@ -666,11 +672,11 @@ private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, no
             Spacer(Modifier.weight(1f))
             BasicText(
                 when {
-                    drive == null -> "$NO_DATA kW"
+                    drive == null -> "– kW"
                     drive >= 0 -> "${drive.roundToInt()} kW"
                     else -> "−${(-drive).roundToInt()} kW"
                 },
-                style = Filament.label(15.sp, if ((drive ?: 0.0) < -0.5) c.accent else c.text, 0.08f),
+                style = Filament.label(15.sp, if (drive == null) c.textFaint else if (drive < -0.5) c.accent else c.text, 0.08f),
             )
         }
         if (note != null) {

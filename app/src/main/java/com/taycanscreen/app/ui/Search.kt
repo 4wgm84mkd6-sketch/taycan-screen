@@ -141,23 +141,26 @@ fun SearchPanel(
             val showRecents = query.trim().length < 3
             val list = if (showRecents) recents else results
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                item {
-                    BasicText(
-                        when {
-                            showRecents -> if (recents.isEmpty()) "TYPE A PLACE OR ADDRESS" else "RECENT"
-                            searching -> "SEARCHING…"
-                            results.isEmpty() -> "NO MATCHES"
-                            else -> "RESULTS"
-                        },
-                        Modifier.padding(start = 4.dp, bottom = 2.dp),
-                        style = Filament.label(13.sp, c.textFaint, 0.18f),
-                    )
-                }
-                // Home and Work for one tap (owner, 2026-11-10). EDIT picks a new place.
+                // Home and Work for one tap (owner, 2026-11-10), side by side so recent places still fit
+                // above the keyboard. EDIT picks a new place.
                 if (showRecents && saveAs == null) {
-                    items(listOf("home", "work"), key = { "saved-$it" }) { kind ->
-                        SavedRow(kind, saved[kind], near, c, onGo = { saved[kind]?.let { pick(it) } ?: run { saveAs = kind } }, onEdit = { saveAs = kind })
+                    item(key = "saved") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for (kind in listOf("home", "work")) {
+                                SavedRow(kind, saved[kind], near, c, Modifier.weight(1f), onGo = { saved[kind]?.let { pick(it) } ?: run { saveAs = kind } }, onEdit = { saveAs = kind })
+                            }
+                        }
                     }
+                }
+                // A caption only when it says something the rows don't.
+                val caption = when {
+                    showRecents -> if (recents.isEmpty()) null else "RECENT"
+                    searching -> "SEARCHING…"
+                    results.isEmpty() -> "NO MATCHES"
+                    else -> null
+                }
+                if (caption != null) item(key = "caption") {
+                    BasicText(caption, Modifier.padding(start = 4.dp, top = 2.dp), style = Filament.label(13.sp, c.textDim, 0.14f))
                 }
                 items(list, key = { "${it.name}|${it.lat}|${it.lon}" }) { p ->
                     PlaceRow(p, if (showRecents) FIcons.Recent else FIcons.Pin, near, c) { pick(p) }
@@ -215,10 +218,10 @@ internal fun QueryField(query: String, placeholder: String, c: DriveColors, modi
 }
 
 @Composable
-private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors, onGo: () -> Unit, onEdit: () -> Unit) {
+private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors, modifier: Modifier, onGo: () -> Unit, onEdit: () -> Unit) {
     val title = kind.replaceFirstChar { it.uppercase() }
     Row(
-        Modifier.fillMaxWidth().height(72.dp).background(c.raised, Filament.CutS).clickable(onClick = onGo).padding(start = 16.dp),
+        modifier.height(68.dp).background(c.raised, Filament.CutS).clickable(onClick = onGo).padding(start = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -246,7 +249,7 @@ private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors,
 @Composable
 private fun PlaceRow(p: Place, icon: ImageVector, near: LatLon?, c: DriveColors, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(72.dp).background(c.raised, Filament.CutS).clickable(onClick = onClick).padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().height(68.dp).background(c.raised, Filament.CutS).clickable(onClick = onClick).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -311,7 +314,7 @@ internal fun Keyboard(
 
 @Composable
 private fun KeyRow(content: @Composable RowScope.() -> Unit) {
-    Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
 }
 
 @Composable

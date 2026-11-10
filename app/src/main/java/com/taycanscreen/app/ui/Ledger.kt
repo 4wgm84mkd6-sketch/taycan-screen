@@ -94,9 +94,10 @@ fun LedgerPanel(c: DriveColors, tab: String, now: Long, onTab: (String) -> Unit,
         }
     }
     Column(
-        modifier.width(560.dp).fillMaxHeight().background(c.raised)
+        // Wide enough to cover the search row behind it (the Work button used to peek out).
+        modifier.width(628.dp).fillMaxHeight().background(c.raised)
             .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
-            .padding(start = 20.dp, end = 18.dp, top = 14.dp, bottom = 20.dp),
+            .padding(start = 28.dp, end = 18.dp, top = 14.dp, bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {

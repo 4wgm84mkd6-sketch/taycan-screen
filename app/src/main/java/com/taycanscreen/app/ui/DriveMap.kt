@@ -441,7 +441,10 @@ private fun VectorMap(
     onUserMove: () -> Unit,
 ) {
     if (UiEvents.preview) {
-        Box(Modifier.fillMaxSize().background(if (c.isNight) Color(0xFF15181A) else Color(0xFFE9E7E2)))
+        Box(
+            Modifier.fillMaxSize().background(if (c.isNight) Color(0xFF15181A) else Color(0xFFE9E7E2))
+                .onGloballyPositioned { targets.markerInMap = Offset(it.size.width / 2f, it.size.height * 0.72f) },
+        )
         return
     }
     val context = LocalContext.current
@@ -627,7 +630,8 @@ private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: Gps
         context.getSharedPreferences("ui", Context.MODE_PRIVATE).edit().putString("directions", next.name).apply()
         AppLog.info("map", "Directions: ${next.name}")
     }
-    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(horizontal = 28.dp, vertical = 14.dp),
+    // The top label sits in the margin above the search row / turn card (it ran into the Work button).
+    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(start = 28.dp, end = 28.dp, top = 4.dp, bottom = 14.dp),
         style = Filament.label(14.sp, c.textDim, 0.16f))
     BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 28.dp, vertical = 14.dp),
         style = Filament.label(14.sp, c.textDim, 0.16f))
