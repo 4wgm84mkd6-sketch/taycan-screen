@@ -32,6 +32,9 @@ android {
         versionCode = ciVersionCode
         versionName = "0.1.$ciVersionCode"
         buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
+        // When this build was made. The box sometimes starts with a date in 2025; a date earlier than
+        // this is certainly wrong, which explains failed secure connections in plain words.
+        buildConfigField("long", "BUILD_TIME_MS", "${System.currentTimeMillis()}L")
         buildConfigField("String", "LOG_REPO", "\"$logRepo\"")
         buildConfigField("String", "LOG_CLIENT_ID", "\"$logClientId\"")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")

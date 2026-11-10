@@ -11,7 +11,18 @@ class ReliabilityTest {
     @Test
     fun wrongClockIsExplainedInPlainWords() {
         val e = javax.net.ssl.SSLHandshakeException("Chain validation failed")
-        assertEquals("The box's clock isn't set yet. Try again in a minute.", Friendly.net(e, "fallback"))
+        // 30 July 2025, the date the box starts with before it syncs.
+        val msg = Friendly.net(e, "fallback", nowMs = 1_753_843_416_000L)
+        assertTrue(msg, msg.startsWith("The box's clock is wrong (it says "))
+        assertTrue(msg, "2025" in msg && "try again by itself" in msg)
+        assertTrue(Friendly.clockIsWrong(1_753_843_416_000L))
+    }
+
+    @Test
+    fun secureFailureWithTheRightClockDoesNotBlameTheClock() {
+        val e = javax.net.ssl.SSLHandshakeException("Chain validation failed")
+        assertEquals("Couldn't make a secure connection. Try again in a minute.", Friendly.net(e, "fallback"))
+        assertTrue(!Friendly.clockIsWrong())
     }
 
     @Test
