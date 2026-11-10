@@ -204,6 +204,25 @@ object Nav {
 
     fun clearError() { _error.value = null }
 
+    /** Screenshot tests only: a fixed route with the car at [at] (null clears it). */
+    internal fun preview(place: Place?, route: Route?, at: LatLon?) {
+        if (place == null || route == null || at == null) {
+            _active.value = null
+            _progress.value = null
+            return
+        }
+        val cum = RouteMath.cumulative(route.points)
+        var seg = 0
+        val along = DoubleArray(route.steps.size) { i ->
+            val pr = RouteMath.project(route.points, cum, route.steps[i].at, seg)
+            seg = pr.seg
+            pr.along
+        }
+        lastSeg = 0
+        _active.value = Active(place, route, cum, along, 1L)
+        update(at)
+    }
+
     /** Route from [from] (the car) to [place]; replaces any active route. */
     fun start(place: Place, from: LatLon?, reroute: Boolean = false) {
         if (from == null) {
