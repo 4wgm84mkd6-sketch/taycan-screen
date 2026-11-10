@@ -359,10 +359,7 @@ private fun DriveContent(
                     // Panels ease in and out over the map instead of cutting.
                     Appear(panel == "search") {
                         SearchPanel(
-                            // Typing lock: the car's speed, or GPS speed when the car link is down (it used to
-                            // unlock whenever the car's speed was unknown).
-                            c, v.speedMph?.x ?: gps.fix?.takeIf { it.hasSpeed() }?.let { it.speed * 2.23694 },
-                            gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
+                            c, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
                             onClose = { panel = null; saveAs = null }, modifier = Modifier.fillMaxSize(),
                             initialSaveAs = saveAs,
                         )

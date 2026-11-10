@@ -52,17 +52,15 @@ import com.taycanscreen.app.nav.Place
 import com.taycanscreen.app.nav.RouteMath
 import kotlinx.coroutines.delay
 
-/** Typing pauses above this speed (safety); recent places stay tappable. */
-private const val TYPING_MAX_MPH = 5.0
-
 /**
  * Destination search over the map (design px): a search line, results as you type (Photon, biased
  * to the car's position), recent places, and our own large on-screen keyboard.
+ *
+ * Owner's decision (2026-11-10): every feature works at any speed. The keyboard is never locked.
  */
 @Composable
 fun SearchPanel(
     c: DriveColors,
-    speedMph: Double?,
     near: LatLon?,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -79,7 +77,6 @@ fun SearchPanel(
     var searching by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
     val recents by Nav.recents.collectAsState()
-    val moving = (speedMph ?: 0.0) > TYPING_MAX_MPH
     val online by com.taycanscreen.app.net.NetMonitor.online.collectAsState()
 
     LaunchedEffect(query) {
@@ -168,18 +165,7 @@ fun SearchPanel(
             }
         }
 
-        if (moving) {
-            Box(
-                Modifier.fillMaxWidth().height(120.dp).background(c.raised, Filament.Cut).insetLine(c.border),
-                contentAlignment = Alignment.Center,
-            ) {
-                BasicText(
-                    "Typing is paused while driving. Pick a recent place, or pull over to type.",
-                    Modifier.padding(horizontal = 24.dp),
-                    style = Filament.text(20.sp, 500, c.textDim),
-                )
-            }
-        } else {
+        run {
             Keyboard(
                 c, shift, numbers,
                 onChar = { ch ->
