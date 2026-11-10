@@ -335,6 +335,7 @@ private fun MainScreen(
                 TabButton("Vehicle", tab == "live") { tab = "live" }
                 TabButton("Setup", tab == "setup") { tab = "setup" }
                 TabButton("Box", tab == "box") { tab = "box" }
+                TabButton("Tools", tab == "tools") { tab = "tools" }
             }
             if (tab == "box") {
                 BoxPanel(Modifier.fillMaxSize())
@@ -343,7 +344,22 @@ private fun MainScreen(
                     LivePanel(obd, onRequestBluetooth, Modifier.fillMaxWidth())
                     LogViewer(Modifier.fillMaxWidth().weight(1f))
                 }
+            } else if (tab == "tools") {
+                // Engineering tools, kept away from the everyday Setup page.
+                Column(
+                    Modifier
+                        .width(minOf(420.dp, contentW * 0.42f))
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    DiscoveryPanel(obd)
+                    BigButton("Share log", onClick = onShareLog)
+                    ScreenPanel(readWindow, contentW, contentH, fullScreen, onToggleFullScreen)
+                }
+                LogViewer(Modifier.fillMaxSize())
             } else {
+                // Setup: what the owner uses (update, send log, home app) and how things are right now.
                 Column(
                     Modifier
                         .width(minOf(420.dp, contentW * 0.42f))
@@ -353,8 +369,6 @@ private fun MainScreen(
                 ) {
                     UpdatePanel(updates, onOpenInstallSetting)
                     SendLogPanel()
-                    DiscoveryPanel(obd)
-                    BigButton("Share log", onClick = onShareLog)
                     Panel {
                         Text("Home screen", color = Palette.TextDim, fontSize = 16.sp)
                         Text(
@@ -364,11 +378,56 @@ private fun MainScreen(
                         BigButton("Choose home app", onClick = onChooseHomeApp)
                         BigButton("Open the box's launcher", onClick = onOpenBoxLauncher)
                     }
-                    ScreenPanel(readWindow, contentW, contentH, fullScreen, onToggleFullScreen)
                 }
-                LogViewer(Modifier.fillMaxSize())
+                StatusPanel(obd, Modifier.fillMaxSize())
             }
         }
+    }
+}
+
+/** "How things are right now", in plain words: the first place to look when something seems off. */
+@Composable
+private fun StatusPanel(obd: ObdViewModel, modifier: Modifier) {
+    val car by obd.status.collectAsState()
+    val spotify by SpotifyController.status.collectAsState()
+    val net by com.taycanscreen.app.net.NetMonitor.link.collectAsState()
+    val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()
+    val limit by com.taycanscreen.app.car.SpeedLimit.limit.collectAsState()
+    Column(
+        modifier.background(Palette.Surface, RoundedCornerShape(12.dp)).padding(18.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text("Right now", color = Palette.TextDim, fontSize = 18.sp)
+        @Composable
+        fun row(name: String, ok: Boolean?, text: String) {
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(name, color = Palette.TextDim, fontSize = 19.sp, modifier = Modifier.width(120.dp))
+                Text(text, color = when (ok) { true -> Palette.Accent; false -> Palette.Warn; null -> Palette.Text }, fontSize = 19.sp, modifier = Modifier.weight(1f))
+            }
+        }
+        row(
+            "Car", when (car.state) { LinkState.Live -> true; LinkState.CarAsleep, LinkState.Stopped -> null; else -> false },
+            when (car.state) {
+                LinkState.Live -> "Connected, reading the car" + (car.adapterName?.let { " through $it" } ?: "")
+                LinkState.CarAsleep -> "The car is off. Reading resumes when it's switched on."
+                else -> car.detail.ifBlank { "Not connected" }
+            },
+        )
+        row(
+            "Internet", net.online,
+            if (net.online) "Online" + (net.transport.takeIf { it.isNotBlank() && it != "none" }?.let { " through $it" } ?: "")
+            else "Offline. Search, routes, updates and sending logs need a connection.",
+        )
+        row(
+            "Spotify", spotify.link == SpotifyController.Link.Connected,
+            if (spotify.link == SpotifyController.Link.Connected) "Connected" else spotify.detail.ifBlank { "Connecting…" },
+        )
+        row("Equalizer", if (eq.attachedTo != null) true else null, eq.attachedTo?.let { "On" } ?: eq.detail)
+        row("Speed limit", null, limit?.let { "${it.mph} mph" + (it.road?.let { r -> " on $r" } ?: "") } ?: "None known for this road")
+        Text(
+            "If something stays amber, tap Send log to Claude and say what you saw.",
+            color = Palette.TextDim, fontSize = 16.sp,
+        )
     }
 }
 
