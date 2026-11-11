@@ -73,11 +73,17 @@ fun AudioPanel(c: DriveColors, onClose: () -> Unit, modifier: Modifier = Modifie
                 BasicText(
                     when (status.attachedTo) {
                         null -> status.detail
-                        "All audio" -> "Equalizer on · all sound from the box"
+                        "All audio" -> "Equalizer on · all sound from the box, not Spotify itself"
                         else -> "Equalizer on · ${status.attachedTo}"
                     },
                     style = Filament.text(16.sp, 400, c.textDim), maxLines = 1,
                 )
+            }
+            // Music is playing and the EQ isn't on it: one tap pauses and resumes for a moment, which
+            // makes Spotify hand its audio over (it also happens by itself a few seconds after starting).
+            val playing = com.taycanscreen.app.music.SpotifyController.nowPlaying.collectAsState().value?.paused == false
+            if (playing && status.attachedTo != "Spotify") {
+                Button("CONNECT TO SPOTIFY", c, accent = true) { com.taycanscreen.app.music.SpotifyController.ensureEq(byOwner = true) }
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 BasicText("SPEED-ADAPTIVE BASS", style = Filament.label(13.sp, c.text, 0.06f, 500))

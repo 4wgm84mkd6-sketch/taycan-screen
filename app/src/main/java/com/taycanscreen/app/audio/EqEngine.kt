@@ -104,8 +104,10 @@ object EqEngine {
         if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
         else app.registerReceiver(receiver, filter)
         AppLog.info(TAG, "Listening for players' audio sessions")
-        reattachRemembered()
     }
+
+    /** True while the equalizer sits on Spotify's own audio (not on the box's whole output). */
+    val onSpotify: Boolean get() = _status.value.attachedTo == "Spotify"
 
     /**
      * A player announced (or closed) its audio session. Comes from the receiver registered above and
@@ -146,18 +148,24 @@ object EqEngine {
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("spotify_session").apply()
     }
 
-    private fun reattachRemembered() {
+    /**
+     * Tries the audio session Spotify used before our app restarted (an update restarts us while the
+     * music plays on). Called once Spotify is connected and playing, not at app start: the attempt at
+     * app start failed every time in the logs (error -3). True if the equalizer is on it now.
+     */
+    fun retryRemembered(): Boolean {
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val session = prefs.getInt("spotify_session", 0)
         val boot = prefs.getInt("spotify_session_boot", -2)
-        if (session <= 0) return
+        if (session <= 0) return false
         if (boot != bootCount() || boot == -1) {
             AppLog.info(TAG, "Box restarted since Spotify's audio session $session was seen; waiting for a new one")
             forgetSession()
-            return
+            return false
         }
-        AppLog.info(TAG, "Re-attaching to Spotify's audio session $session (remembered from this box start)")
+        AppLog.info(TAG, "Trying Spotify's earlier audio session $session (remembered from this box start)")
         attach(session, "com.spotify.music", remembered = true)
+        return effects.containsKey(session)
     }
 
     /** Fallback: try the global output mix (session 0) so the EQ works even without announcements. */

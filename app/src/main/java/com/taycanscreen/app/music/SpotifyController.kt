@@ -63,7 +63,10 @@ object SpotifyController {
     private var artUri: String? = null
     /** The cover being fetched, so player updates don't start a second fetch of the same one. */
     private var artLoading: String? = null
-    private var globalEqScheduled = false
+    // Equalizer hand-over (see ensureEq).
+    private var eqNudges = 0
+    private var lastEqNudgeAt = 0L
+    private val eqCheck = Runnable { ensureEq(byOwner = false) }
     private val handler = Handler(Looper.getMainLooper())
     private val thumbs = LruCache<String, Bitmap>(80)
     private val retry = Runnable { connect(showAuth = false) }
@@ -202,10 +205,10 @@ object SpotifyController {
             .setEventCallback { ps ->
                 val t = ps.track
                 // If Spotify plays but never announced its audio session, fall back to the global EQ.
-                if (!ps.isPaused && !globalEqScheduled) {
-                    globalEqScheduled = true
-                    handler.postDelayed({ com.taycanscreen.app.audio.EqEngine.tryGlobal() }, 15_000L)
-                }
+                // Music is playing: a moment later, make sure the equalizer is on it.
+                handler.removeCallbacks(eqCheck)
+                // (6 s: when a new item starts, Spotify's own hand-over can take about 4 s.)
+                if (!ps.isPaused) handler.postDelayed(eqCheck, 6_000L)
                 _nowPlaying.value = if (t == null) null else NowPlaying(
                     title = t.name ?: "",
                     artist = t.artist?.name ?: t.artists?.joinToString { it.name } ?: "",
@@ -233,6 +236,51 @@ object SpotifyController {
                 _status.value = Status(Link.Failed, "Spotify isn't responding. Trying again…")
                 scheduleRetry(3_000L)
             }
+    }
+
+    /**
+     * Makes sure the equalizer is on Spotify's audio while music plays.
+     *
+     * Spotify hands its audio over only at the moment playback starts (and takes it back when it
+     * pauses). If our app starts while music is already playing, which is what happens after every
+     * update, there is no hand-over, and in the logs the equalizer then stayed off Spotify until the
+     * next pause and play (a whole 27-minute drive on 2026-11-08). So: first try the audio session
+     * Spotify had before (silent); if that doesn't work, pause and resume once, about a third of a
+     * second, which makes Spotify hand over again. At most 3 times per app start, 2 minutes apart;
+     * after that the equalizer goes on the box's whole output as before.
+     * [byOwner]: the Connect button in the Sound panel; skips the limits.
+     */
+    fun ensureEq(byOwner: Boolean) {
+        val eq = com.taycanscreen.app.audio.EqEngine
+        val r = remote
+        if (r == null || !r.isConnected || _nowPlaying.value?.paused != false) return
+        if (eq.onSpotify) return
+        if (eq.retryRemembered()) {
+            AppLog.info(TAG, "Equalizer is back on Spotify's earlier audio session")
+            return
+        }
+        val now = com.taycanscreen.app.util.Mono.ms()
+        if (!byOwner && (eqNudges >= 3 || (lastEqNudgeAt != 0L && now - lastEqNudgeAt < 120_000))) {
+            eq.tryGlobal()
+            return
+        }
+        eqNudges++
+        lastEqNudgeAt = now
+        AppLog.info(TAG, "Music is playing but Spotify hasn't handed its audio to the equalizer: pausing and resuming once (${if (byOwner) "Connect button" else "try $eqNudges of 3"})")
+        r.playerApi.pause()
+            .setResultCallback {
+                handler.postDelayed({
+                    remote?.playerApi?.resume()
+                    handler.postDelayed({
+                        if (eq.onSpotify) AppLog.info(TAG, "Equalizer is on Spotify after the pause and resume")
+                        else {
+                            AppLog.warn(TAG, "Spotify still hasn't handed its audio over after a pause and resume")
+                            eq.tryGlobal()
+                        }
+                    }, 3_000L)
+                }, 300L)
+            }
+            .setErrorCallback { AppLog.warn(TAG, "Couldn't pause for the equalizer hand-over: ${it.message}") }
     }
 
     /** Lets go of the Spotify link properly (it used to be forgotten while still open). */
