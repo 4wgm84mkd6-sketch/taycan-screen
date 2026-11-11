@@ -352,7 +352,7 @@ fun MapArea(
         // Top left: the search box with Home and Work (owner, 2026-11-10; pull the box down to go home),
         // or during a route the next turn with the trip details under it.
         Column(Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (activeRoute == null) {
+            Appear(activeRoute == null, enter = Motion.FadeIn, exit = Motion.FadeOut) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     var pull by remember { mutableFloatStateOf(0f) }
                     val pullDp = with(LocalDensity.current) { pull.toDp() }
@@ -398,7 +398,7 @@ fun MapArea(
                     }
                 }
             }
-            NextTurnBanner(c, Modifier.width(460.dp))
+            Appear(activeRoute != null, enter = Motion.CardIn, exit = Motion.FadeOut) { NextTurnBanner(c, Modifier.width(460.dp)) }
             RouteCard(c, Modifier.width(460.dp))
         }
 
@@ -440,6 +440,10 @@ private fun VectorMap(
     followingState: androidx.compose.runtime.State<Boolean>,
     onUserMove: () -> Unit,
 ) {
+    if (UiEvents.preview) {
+        Box(Modifier.fillMaxSize().background(if (c.isNight) Color(0xFF15181A) else Color(0xFFE9E7E2)))
+        return
+    }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val mapView = remember {
@@ -524,14 +528,12 @@ private fun VectorMap(
     // Every frame: follow the predicted car position, and tell the overlays where the car is.
     LaunchedEffect(map, tracker, northUp) {
         val m = map ?: return@LaunchedEffect
-        var last = 0L
         var lastTarget: LatLng? = null
         var lastBearing = Double.NaN
         while (true) {
+            // Every frame (it used to skip every other one, which capped the map at 30 a second).
             withFrameNanos { }
             val now = SystemClock.elapsedRealtime()
-            if (now - last < 30) continue
-            last = now
             val w = mapView.width.toFloat()
             val h = mapView.height.toFloat()
             if (w <= 0f) continue
@@ -625,7 +627,8 @@ private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: Gps
         context.getSharedPreferences("ui", Context.MODE_PRIVATE).edit().putString("directions", next.name).apply()
         AppLog.info("map", "Directions: ${next.name}")
     }
-    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(horizontal = 20.dp, vertical = 12.dp),
+    // In the margin above the search row (it ran into the Work button, seen in the car on build 171).
+    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(start = 20.dp, end = 20.dp, top = 5.dp, bottom = 12.dp),
         style = Filament.label(11.sp, c.textFaint, 0.18f))
     BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 20.dp, vertical = 10.dp),
         style = Filament.label(11.sp, c.textDim, 0.18f))

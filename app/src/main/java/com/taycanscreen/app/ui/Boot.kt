@@ -27,6 +27,9 @@ object Boot {
     /** When the start-up hands off to Drive (elapsedRealtime); 0 = not yet. Drives the map wipe and fly-ins. */
     val handoffAt = MutableStateFlow(0L)
 
+    /** The picture of the screen after start-up has been taken (once per app start). */
+    var startupShotTaken = false
+
     /** First shift into D after start-up has swept the gauge (or the car was already in D). */
     var sweepDone = false
 

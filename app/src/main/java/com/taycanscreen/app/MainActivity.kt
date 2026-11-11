@@ -238,6 +238,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        @Suppress("DEPRECATION")
+        com.taycanscreen.app.log.FrameStats.displayHz = runCatching { windowManager.defaultDisplay.refreshRate }.getOrDefault(0f)
         com.taycanscreen.app.log.FrameStats.start()
         com.taycanscreen.app.log.Screenshots.attach(this)
         updates.onResume()
@@ -541,7 +543,17 @@ private fun UpdatePanel(updates: UpdateViewModel, onOpenInstallSetting: () -> Un
                 when (s) {
                     UpdateState.Checking -> StatusText("Checking…")
                     is UpdateState.UpToDate -> StatusText("Up to date (latest is build ${s.latest}).", Palette.Accent)
-                    is UpdateState.Failed -> StatusText(s.message, Palette.Warn)
+                    is UpdateState.Failed -> {
+                        StatusText(s.message, Palette.Warn)
+                        if (com.taycanscreen.app.util.Friendly.clockIsWrong()) {
+                            val context = LocalContext.current
+                            BigButton("Open date & time settings") {
+                                runCatching {
+                                    context.startActivity(Intent(Settings.ACTION_DATE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                }.onFailure { AppLog.warn("update", "Couldn't open date settings: ${it.message}") }
+                            }
+                        }
+                    }
                     else -> if (installResult != null) StatusText(installResult!!)
                 }
                 BigButton("Check for update", enabled = s != UpdateState.Checking) { updates.check() }

@@ -22,7 +22,8 @@ import java.util.zip.GZIPOutputStream
  */
 object LogUploader {
     private const val TAG = "log"
-    private const val SESSIONS_TO_SEND = 3
+    /** Per tap. Sessions already sent in full are skipped, so earlier drives aren't left behind. */
+    private const val SESSIONS_TO_SEND = 8
     private const val SHOTS_TO_SEND = 8
     /** Upload in pieces so a weak mobile signal only has to carry a small request at a time. */
     private const val PART_BYTES = 256 * 1024
@@ -37,8 +38,14 @@ object LogUploader {
         val token = GitHubAuth.token(context) ?: throw SignInNeeded("Sign in to GitHub first.")
         val current = AppLog.currentFile() // also flushes it
         // Always the current session first, then the most recent earlier ones.
+        // It used to send only the 3 newest, so after a few short starts the log of the actual drive
+        // never arrived. Now: every session that hasn't been sent in its current size, newest first.
+        val prefs = context.getSharedPreferences("log_upload", Context.MODE_PRIVATE)
+        val sentMarks = prefs.getStringSet("sent", emptySet())!!.toMutableSet()
+        fun mark(f: File) = "${f.name}:${f.length()}"
         val files = (listOfNotNull(current) + AppLog.sessionFiles(context))
             .distinctBy { it.absolutePath }
+            .filter { it.length() > 0 && (it == current || mark(it) !in sentMarks) }
             .take(SESSIONS_TO_SEND)
         if (files.isEmpty()) return@withContext "No logs yet."
 
@@ -61,11 +68,15 @@ object LogUploader {
                     if (attempt < TRIES_PER_PART) kotlinx.coroutines.delay(3_000L * attempt)
                 }
                 if (result != null) {
-                    return@withContext "Upload failed: $result" + if (sent > 0) " ($sent of ${files.size} files sent)" else "" +
-                        ". The log is kept on the box; try again with a better signal."
+                    return@withContext "Couldn't send: $result" + (if (sent > 0) " ($sent of ${files.size} files sent.)" else "") +
+                        " The log is kept on the box; tap Send log to Claude to try again."
                 }
             }
             sent++
+            if (f != current) {
+                sentMarks += mark(f)
+                prefs.edit().putStringSet("sent", sentMarks.toList().takeLast(60).toSet()).apply()
+            }
         }
         // Screenshots of the Drive screen (Screenshots.kt), newest first, not sent before.
         var shots = 0
@@ -115,13 +126,20 @@ object LogUploader {
             when (val code = conn.responseCode) {
                 200, 201 -> null
                 401 -> throw SignInNeeded("GitHub sign-in expired. Sign in again.")
-                403, 404 -> "The token can't write to ${BuildConfig.LOG_REPO} (HTTP $code)."
-                else -> "HTTP $code " + (conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) ?: "")
+                403, 404 -> {
+                    AppLog.warn(TAG, "GitHub refused the upload to ${BuildConfig.LOG_REPO} (HTTP $code)")
+                    "GitHub didn't accept it. Sign out of GitHub below, sign in again, and retry."
+                }
+                else -> {
+                    AppLog.warn(TAG, "Upload answered HTTP $code " + (conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) ?: ""))
+                    "GitHub is having trouble right now."
+                }
             }
         } catch (e: SignInNeeded) {
             throw e
         } catch (e: Exception) {
-            "${e.javaClass.simpleName}: ${e.message}"
+            AppLog.warn(TAG, "Upload failed: ${e.javaClass.simpleName}: ${e.message}")
+            com.taycanscreen.app.util.Friendly.net(e, "the connection dropped.")
         } finally {
             conn.disconnect()
         }

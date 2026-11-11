@@ -84,7 +84,10 @@ object Screenshots {
             if (quality > 50) quality -= 15
             else img = Bitmap.createScaledBitmap(img, img.width * 3 / 4, img.height * 3 / 4, true)
         }
-        file.writeBytes(bytes)
+        // Write to a side file first: the box can lose power mid-write, which left an empty picture.
+        val tmp = File(d, file.name + ".tmp")
+        tmp.writeBytes(bytes)
+        tmp.renameTo(file)
         AppLog.info(TAG, "Screenshot ${file.name} (${bytes.size / 1024} KB, $reason)")
         (d.listFiles()?.sortedByDescending { it.name } ?: emptyList()).drop(KEEP).forEach { it.delete() }
         true
@@ -95,7 +98,7 @@ object Screenshots {
 
     /** Screenshots not sent yet, newest first. */
     fun unsent(context: Context): List<File> =
-        (dir(context).listFiles()?.filter { it.name.endsWith(".jpg") && !it.name.endsWith(".sent.jpg") } ?: emptyList())
+        (dir(context).listFiles()?.filter { it.name.endsWith(".jpg") && !it.name.endsWith(".sent.jpg") && it.length() > 0 } ?: emptyList())
             .sortedByDescending { it.name }
 
     fun markSent(f: File) {

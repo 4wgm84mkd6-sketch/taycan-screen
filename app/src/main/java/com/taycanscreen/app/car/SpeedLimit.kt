@@ -45,6 +45,11 @@ object SpeedLimit {
     private val _limit = MutableStateFlow<Limit?>(null)
     val limit: StateFlow<Limit?> = _limit.asStateFlow()
 
+    /** Screenshot tests only. */
+    internal fun preview(mph: Int?) {
+        _limit.value = mph?.let { Limit(it, null, 0L) }
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var busy = false
     private var lastAskAt = 0L
@@ -112,6 +117,9 @@ object SpeedLimit {
     fun init(context: android.content.Context) {
         val app = context.applicationContext
         scope.launch {
+            // After the start-up sequence: on a cold boot this parse (0.6–0.7 s) competed with the
+            // first frames, which came 2.2–2.9 s after the app started instead of 0.8 s.
+            kotlinx.coroutines.delay(4_000)
             val t0 = System.currentTimeMillis()
             try {
                 val idx = app.assets.open("speedlimits.txt").bufferedReader().useLines { parseIndex(it) }
@@ -128,6 +136,7 @@ object SpeedLimit {
     }
 
     private var offlineLastAt = 0L
+    @Volatile private var offlineBusy = false
 
     /** From the map on each fix (main thread). */
     fun onLocation(lat: Double, lon: Double, heading: Float?, speedKmh: Double?) {
@@ -137,9 +146,17 @@ object SpeedLimit {
         _limit.value?.let { if (now - it.at > 120_000) _limit.value = null }
         if (!offlineChecked) return
         offline?.let { idx ->
-            if (now - offlineLastAt < 800) return
+            if (offlineBusy || now - offlineLastAt < 800) return
             offlineLastAt = now
-            publish(choose(idx.near(p), p, heading), now)
+            offlineBusy = true
+            // Off the screen's thread: matching the nearby roads takes a few milliseconds every time.
+            scope.launch(Dispatchers.Default) {
+                try {
+                    publish(choose(idx.near(p), p, heading), now)
+                } finally {
+                    offlineBusy = false
+                }
+            }
             return
         }
         if (busy || now - lastAskAt < 6_000 || now < backoffUntil) return

@@ -8,6 +8,8 @@ import com.taycanscreen.app.log.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 sealed interface UpdateState {
@@ -37,7 +39,35 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
                 else UpdateState.UpToDate(latest.versionCode)
             } catch (e: Exception) {
                 AppLog.error("update", "Update check failed", e)
+                retryWhenFixed()
                 UpdateState.Failed(com.taycanscreen.app.util.Friendly.net(e, "Couldn't check for updates. Try again later."))
+            }
+        }
+    }
+
+    private var retryJob: Job? = null
+
+    /**
+     * After a failed check: look again by itself as soon as the cause is likely gone, i.e. the box's
+     * clock jumps to the right date (it starts some days at 30 July 2025, which breaks secure
+     * connections) or the internet comes up. Gives up after 10 minutes.
+     */
+    private fun retryWhenFixed() {
+        retryJob?.cancel()
+        retryJob = viewModelScope.launch {
+            val wall0 = System.currentTimeMillis()
+            val mono0 = com.taycanscreen.app.util.Mono.ms()
+            val wasOnline = com.taycanscreen.app.net.NetMonitor.online.value
+            repeat(120) {
+                delay(5_000)
+                if (_state.value !is UpdateState.Failed) return@launch
+                val jumped = kotlin.math.abs((System.currentTimeMillis() - wall0) - (com.taycanscreen.app.util.Mono.ms() - mono0)) > 60_000
+                val cameOnline = !wasOnline && com.taycanscreen.app.net.NetMonitor.online.value
+                if (jumped || cameOnline) {
+                    AppLog.info("update", if (jumped) "The box's clock was corrected: checking for updates again" else "Internet is up: checking for updates again")
+                    check()
+                    return@launch
+                }
             }
         }
     }
@@ -54,9 +84,19 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val apk = updater.download(release) { p -> _state.value = UpdateState.Downloading(p) }
                 _state.value = UpdateState.Installing
+                // Let go of the car adapter cleanly before the app is replaced. When the old app was
+                // simply killed mid-conversation, the next start took up to 100 s to get the car link
+                // back (build 158's log); a clean disconnect leaves the adapter ready.
+                com.taycanscreen.app.obd.ObdEngine.stop()
                 updater.install(apk)
+                // Still here after a minute and a half (Android's confirm screen was left without an
+                // answer, say): pick the car link up again rather than leave it stopped.
+                delay(90_000)
+                AppLog.warn("update", "The update didn't replace the app within 90 s; reading the car again")
+                com.taycanscreen.app.obd.ObdEngine.start()
             } catch (e: Exception) {
                 AppLog.error("update", "Update failed", e)
+                com.taycanscreen.app.obd.ObdEngine.start()
                 _state.value = UpdateState.Failed(com.taycanscreen.app.util.Friendly.net(e, "The update didn't download. Tap Check for update to try again."))
             }
         }
