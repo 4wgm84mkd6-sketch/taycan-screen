@@ -205,3 +205,4 @@ I work entirely from my iPhone. You can't reach the box directly, so:
   - Sound panel: a "Connect to Spotify" button while music plays and the EQ isn't on Spotify (same action, no limits).
   - Dock EQ light: amber only while music is playing and the EQ isn't on Spotify.
   - To verify in the next log: after an update with music playing, the three log lines above and `[eq] Equalizer attached to session N (com.spotify.music)` within ~10 s. If the remembered-session retry ever succeeds ("Equalizer is back on Spotify's earlier audio session"), the pause can be dropped for that case.
+- 2026-11-11: The EQ fix above is released as build 171 (build numbers 159–170 were used up by work-branch runs). `build-b` and `build-c` have `main` merged in; build-c's new Sound panel has the same CONNECT TO SPOTIFY button.
