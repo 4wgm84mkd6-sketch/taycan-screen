@@ -238,6 +238,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        @Suppress("DEPRECATION")
+        com.taycanscreen.app.log.FrameStats.displayHz = runCatching { windowManager.defaultDisplay.refreshRate }.getOrDefault(0f)
         com.taycanscreen.app.log.FrameStats.start()
         com.taycanscreen.app.log.Screenshots.attach(this)
         updates.onResume()

@@ -117,6 +117,9 @@ object SpeedLimit {
     fun init(context: android.content.Context) {
         val app = context.applicationContext
         scope.launch {
+            // After the start-up sequence: on a cold boot this parse (0.6–0.7 s) competed with the
+            // first frames, which came 2.2–2.9 s after the app started instead of 0.8 s.
+            kotlinx.coroutines.delay(4_000)
             val t0 = System.currentTimeMillis()
             try {
                 val idx = app.assets.open("speedlimits.txt").bufferedReader().useLines { parseIndex(it) }

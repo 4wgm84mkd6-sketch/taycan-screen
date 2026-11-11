@@ -22,7 +22,8 @@ import java.util.zip.GZIPOutputStream
  */
 object LogUploader {
     private const val TAG = "log"
-    private const val SESSIONS_TO_SEND = 3
+    /** Per tap. Sessions already sent in full are skipped, so earlier drives aren't left behind. */
+    private const val SESSIONS_TO_SEND = 8
     private const val SHOTS_TO_SEND = 8
     /** Upload in pieces so a weak mobile signal only has to carry a small request at a time. */
     private const val PART_BYTES = 256 * 1024
@@ -37,8 +38,14 @@ object LogUploader {
         val token = GitHubAuth.token(context) ?: throw SignInNeeded("Sign in to GitHub first.")
         val current = AppLog.currentFile() // also flushes it
         // Always the current session first, then the most recent earlier ones.
+        // It used to send only the 3 newest, so after a few short starts the log of the actual drive
+        // never arrived. Now: every session that hasn't been sent in its current size, newest first.
+        val prefs = context.getSharedPreferences("log_upload", Context.MODE_PRIVATE)
+        val sentMarks = prefs.getStringSet("sent", emptySet())!!.toMutableSet()
+        fun mark(f: File) = "${f.name}:${f.length()}"
         val files = (listOfNotNull(current) + AppLog.sessionFiles(context))
             .distinctBy { it.absolutePath }
+            .filter { it.length() > 0 && (it == current || mark(it) !in sentMarks) }
             .take(SESSIONS_TO_SEND)
         if (files.isEmpty()) return@withContext "No logs yet."
 
@@ -66,6 +73,10 @@ object LogUploader {
                 }
             }
             sent++
+            if (f != current) {
+                sentMarks += mark(f)
+                prefs.edit().putStringSet("sent", sentMarks.toList().takeLast(60).toSet()).apply()
+            }
         }
         // Screenshots of the Drive screen (Screenshots.kt), newest first, not sent before.
         var shots = 0

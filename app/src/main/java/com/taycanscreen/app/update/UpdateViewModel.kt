@@ -84,9 +84,14 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val apk = updater.download(release) { p -> _state.value = UpdateState.Downloading(p) }
                 _state.value = UpdateState.Installing
+                // Let go of the car adapter cleanly before the app is replaced. When the old app was
+                // simply killed mid-conversation, the next start took up to 100 s to get the car link
+                // back (build 158's log); a clean disconnect leaves the adapter ready.
+                com.taycanscreen.app.obd.ObdEngine.stop()
                 updater.install(apk)
             } catch (e: Exception) {
                 AppLog.error("update", "Update failed", e)
+                com.taycanscreen.app.obd.ObdEngine.start()
                 _state.value = UpdateState.Failed(com.taycanscreen.app.util.Friendly.net(e, "The update didn't download. Tap Check for update to try again."))
             }
         }

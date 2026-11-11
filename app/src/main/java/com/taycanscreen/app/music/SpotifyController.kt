@@ -28,7 +28,7 @@ object SpotifyController {
     private const val TAG = "spotify"
     private const val RETRY_MS = 15_000L
     /** Spotify refusing an app it allowed before (cold start, clock not set, no internet yet): keep asking quietly. */
-    private const val AUTH_RETRY_MS = 20_000L
+    private const val AUTH_RETRY_MS = 6_000L
 
     enum class Link { NotSetUp, NotInstalled, NeedsSignIn, NeedsAuthorization, Connecting, Connected, Failed }
     data class Status(val link: Link, val detail: String = "")
@@ -85,6 +85,19 @@ object SpotifyController {
         appContext = context.applicationContext
         connect(showAuth = true)
         if (first) {
+            // The box starts with a wrong date and Spotify can't sign in until it is corrected (in the
+            // car it connected 20–30 s after the correction). Try again the moment the clock is set.
+            runCatching {
+                appContext.registerReceiver(object : android.content.BroadcastReceiver() {
+                    override fun onReceive(c: Context, i: android.content.Intent) {
+                        if (remote?.isConnected != true && !connecting) {
+                            AppLog.info(TAG, "The box's clock was set: reconnecting to Spotify")
+                            handler.removeCallbacks(retry)
+                            connect(showAuth = false)
+                        }
+                    }
+                }, android.content.IntentFilter(android.content.Intent.ACTION_TIME_CHANGED))
+            }
             // Cold start: the box often has no internet for the first minute, and Spotify can't
             // authenticate offline. Try again the moment the connection comes up.
             kotlinx.coroutines.MainScope().launch {
@@ -244,10 +257,10 @@ object SpotifyController {
      * Spotify hands its audio over only at the moment playback starts (and takes it back when it
      * pauses). If our app starts while music is already playing, which is what happens after every
      * update, there is no hand-over, and in the logs the equalizer then stayed off Spotify until the
-     * next pause and play (a whole 27-minute drive on 2026-11-08). So: first try the audio session
-     * Spotify had before (silent); if that doesn't work, pause and resume once, about a third of a
-     * second, which makes Spotify hand over again. At most 3 times per app start, 2 minutes apart;
-     * after that the equalizer goes on the box's whole output as before.
+     * next pause and play (a whole 27-minute drive on 2026-11-08). So: pause and resume once, about a
+     * third of a second, which makes Spotify hand over again (confirmed in the car on build 171:
+     * attached 0.5 s later). At most 3 times per app start, 2 minutes apart; after that the equalizer
+     * goes on the box's whole output as before.
      * [byOwner]: the Connect button in the Sound panel; skips the limits.
      */
     fun ensureEq(byOwner: Boolean) {
@@ -255,10 +268,6 @@ object SpotifyController {
         val r = remote
         if (r == null || !r.isConnected || _nowPlaying.value?.paused != false) return
         if (eq.onSpotify) return
-        if (eq.retryRemembered()) {
-            AppLog.info(TAG, "Equalizer is back on Spotify's earlier audio session")
-            return
-        }
         val now = com.taycanscreen.app.util.Mono.ms()
         if (!byOwner && (eqNudges >= 3 || (lastEqNudgeAt != 0L && now - lastEqNudgeAt < 120_000))) {
             eq.tryGlobal()

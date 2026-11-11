@@ -275,7 +275,11 @@ private fun DriveContent(
         while (Boot.handoffAt.value == 0L) delay(250)
         val wait = Boot.handoffAt.value + 2_500 - SystemClock.elapsedRealtime()
         if (wait > 0) delay(wait)
-        com.taycanscreen.app.log.Screenshots.capture("start-up")
+        // Once per app start (coming back from Setup used to take another one labelled "start-up").
+        if (!Boot.startupShotTaken) {
+            Boot.startupShotTaken = true
+            com.taycanscreen.app.log.Screenshots.capture("start-up")
+        }
         while (true) {
             delay(10 * 60_000L)
             com.taycanscreen.app.log.Screenshots.capture("drive")
