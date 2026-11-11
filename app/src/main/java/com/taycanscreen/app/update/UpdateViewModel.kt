@@ -89,6 +89,11 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
                 // back (build 158's log); a clean disconnect leaves the adapter ready.
                 com.taycanscreen.app.obd.ObdEngine.stop()
                 updater.install(apk)
+                // Still here after a minute and a half (Android's confirm screen was left without an
+                // answer, say): pick the car link up again rather than leave it stopped.
+                delay(90_000)
+                AppLog.warn("update", "The update didn't replace the app within 90 s; reading the car again")
+                com.taycanscreen.app.obd.ObdEngine.start()
             } catch (e: Exception) {
                 AppLog.error("update", "Update failed", e)
                 com.taycanscreen.app.obd.ObdEngine.start()

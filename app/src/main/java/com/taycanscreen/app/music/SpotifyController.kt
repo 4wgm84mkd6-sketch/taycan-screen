@@ -88,7 +88,7 @@ object SpotifyController {
             // The box starts with a wrong date and Spotify can't sign in until it is corrected (in the
             // car it connected 20–30 s after the correction). Try again the moment the clock is set.
             runCatching {
-                appContext.registerReceiver(object : android.content.BroadcastReceiver() {
+                val onClockSet = object : android.content.BroadcastReceiver() {
                     override fun onReceive(c: Context, i: android.content.Intent) {
                         if (remote?.isConnected != true && !connecting) {
                             AppLog.info(TAG, "The box's clock was set: reconnecting to Spotify")
@@ -96,7 +96,10 @@ object SpotifyController {
                             connect(showAuth = false)
                         }
                     }
-                }, android.content.IntentFilter(android.content.Intent.ACTION_TIME_CHANGED))
+                }
+                val filter = android.content.IntentFilter(android.content.Intent.ACTION_TIME_CHANGED)
+                if (android.os.Build.VERSION.SDK_INT >= 33) appContext.registerReceiver(onClockSet, filter, Context.RECEIVER_NOT_EXPORTED)
+                else appContext.registerReceiver(onClockSet, filter)
             }
             // Cold start: the box often has no internet for the first minute, and Spotify can't
             // authenticate offline. Try again the moment the connection comes up.
