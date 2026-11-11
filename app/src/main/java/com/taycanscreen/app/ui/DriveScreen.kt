@@ -727,6 +727,7 @@ private fun V3Dock(
     modifier: Modifier,
 ) {
     val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()
+    val playing = SpotifyController.nowPlaying.collectAsState().value?.paused == false
     Row(
         modifier.background(c.background).drawBehind { drawLine(c.border, Offset(0f, density / 2), Offset(size.width, density / 2), density) }
             .padding(horizontal = 28.dp),
@@ -741,8 +742,9 @@ private fun V3Dock(
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
             DockIcon(FIcons.Navigate, if (panel == "search") "Close destination search" else "Search for a destination", panel == null || panel == "search", c, onClick = onNavigate)
             DockIcon(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
-            // Amber corner light while the EQ isn't on Spotify's audio.
-            DockIcon(FIcons.Eq, "Equalizer", panel == "audio", c, light = if (eq.attachedTo == "Spotify") null else c.warn, onClick = onOpenAudio)
+            // Amber corner light only when something is wrong: music is playing and the EQ isn't on it.
+            // (It used to stay amber whenever nothing was playing, which looked like a fault.)
+            DockIcon(FIcons.Eq, "Equalizer", panel == "audio", c, light = if (playing && eq.attachedTo != "Spotify") c.warn else null, onClick = onOpenAudio)
             DockIcon(FIcons.Bolt, "Energy ledger", panel == "ledger", c, onClick = onOpenLedger)
             val themeIcon = when (themeMode) {
                 ThemeMode.Auto -> FIcons.Auto
