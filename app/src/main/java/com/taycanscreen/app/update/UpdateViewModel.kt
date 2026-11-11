@@ -84,9 +84,19 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val apk = updater.download(release) { p -> _state.value = UpdateState.Downloading(p) }
                 _state.value = UpdateState.Installing
+                // Let go of the car adapter cleanly before the app is replaced. When the old app was
+                // simply killed mid-conversation, the next start took up to 100 s to get the car link
+                // back (build 158's log); a clean disconnect leaves the adapter ready.
+                com.taycanscreen.app.obd.ObdEngine.stop()
                 updater.install(apk)
+                // Still here after a minute and a half (Android's confirm screen was left without an
+                // answer, say): pick the car link up again rather than leave it stopped.
+                delay(90_000)
+                AppLog.warn("update", "The update didn't replace the app within 90 s; reading the car again")
+                com.taycanscreen.app.obd.ObdEngine.start()
             } catch (e: Exception) {
                 AppLog.error("update", "Update failed", e)
+                com.taycanscreen.app.obd.ObdEngine.start()
                 _state.value = UpdateState.Failed(com.taycanscreen.app.util.Friendly.net(e, "The update didn't download. Tap Check for update to try again."))
             }
         }

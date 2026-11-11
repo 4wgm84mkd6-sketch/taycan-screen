@@ -47,6 +47,8 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
             else -> {
                 AppLog.error("update", "Install failed: status $status, $message")
+                // The app stays as it is: pick the car link up again (it was let go for the update).
+                runCatching { com.taycanscreen.app.obd.ObdEngine.start() }
                 lastResult.value = "The update wasn't installed. Tap Check for update to try again."
             }
         }

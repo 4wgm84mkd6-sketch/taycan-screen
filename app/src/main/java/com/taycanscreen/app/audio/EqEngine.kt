@@ -126,47 +126,12 @@ object EqEngine {
             if (!effects.containsKey(session)) return
             AppLog.info(TAG, "Audio session $session closed by $pkg")
             detach(session)
-            if (session == rememberedSession()) forgetSession()
         }
     }
 
-    // Spotify keeps one session number while a player lives and makes a new one each time it builds a
-    // new player (121 → 129 → 137 → 145 within minutes in the logs). After one of our updates we try the
-    // remembered number once; if that player is gone Android answers error -3, which is expected and
-    // handled quietly: the EQ attaches again by itself the next time Spotify starts playing.
-    private fun bootCount(): Int =
-        runCatching { android.provider.Settings.Global.getInt(app.contentResolver, android.provider.Settings.Global.BOOT_COUNT) }.getOrDefault(-1)
-
-    private fun rememberedSession(): Int = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("spotify_session", 0)
-
-    private fun rememberSession(session: Int) {
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putInt("spotify_session", session).putInt("spotify_session_boot", bootCount()).apply()
-    }
-
-    private fun forgetSession() {
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("spotify_session").apply()
-    }
-
-    /**
-     * Tries the audio session Spotify used before our app restarted (an update restarts us while the
-     * music plays on). Called once Spotify is connected and playing, not at app start: the attempt at
-     * app start failed every time in the logs (error -3). True if the equalizer is on it now.
-     */
-    fun retryRemembered(): Boolean {
-        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val session = prefs.getInt("spotify_session", 0)
-        val boot = prefs.getInt("spotify_session_boot", -2)
-        if (session <= 0) return false
-        if (boot != bootCount() || boot == -1) {
-            AppLog.info(TAG, "Box restarted since Spotify's audio session $session was seen; waiting for a new one")
-            forgetSession()
-            return false
-        }
-        AppLog.info(TAG, "Trying Spotify's earlier audio session $session (remembered from this box start)")
-        attach(session, "com.spotify.music", remembered = true)
-        return effects.containsKey(session)
-    }
+    // Attaching to a session whose music is already playing fails on this box (error -3, three times
+    // out of three, including a session that was demonstrably alive), so there is no "remember the
+    // session and try it again": SpotifyController.ensureEq makes Spotify announce it afresh instead.
 
     /** Fallback: try the global output mix (session 0) so the EQ works even without announcements. */
     private var globalTried = false
@@ -178,7 +143,7 @@ object EqEngine {
         attach(0, "all audio")
     }
 
-    private fun attach(session: Int, owner: String, remembered: Boolean = false) {
+    private fun attach(session: Int, owner: String) {
         if (effects.containsKey(session)) return
         var created: DynamicsProcessing? = null
         try {
@@ -202,17 +167,11 @@ object EqEngine {
             apply()
             dp.enabled = true
             AppLog.info(TAG, "Equalizer attached to session $session ($owner)")
-            if (owner == "com.spotify.music" && session > 0) rememberSession(session)
             _status.value = Status(if (session == 0) "All audio" else ownerLabel(owner), "Equalizer active")
         } catch (e: Exception) {
             effects.remove(session)
             created?.let { runCatching { it.release() } }
-            if (remembered) {
-                AppLog.info(TAG, "Spotify's earlier audio session $session is gone (${e.message}); waiting for it to start playing")
-                forgetSession()
-            } else {
-                AppLog.warn(TAG, "Couldn't attach to session $session ($owner): ${e.javaClass.simpleName}: ${e.message}")
-            }
+            AppLog.warn(TAG, "Couldn't attach to session $session ($owner): ${e.javaClass.simpleName}: ${e.message}")
             if (effects.isEmpty()) _status.value = Status(null, WAITING)
         }
     }
