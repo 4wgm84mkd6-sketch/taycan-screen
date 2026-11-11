@@ -59,14 +59,21 @@ fun AudioPanel(c: DriveColors, onClose: () -> Unit, modifier: Modifier = Modifie
             Column(Modifier.weight(1f)) {
                 Text("Audio", color = c.text, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    status.attachedTo?.let { "Equalizer on $it" } ?: status.detail,
-                    color = if (status.attachedTo == "Spotify") c.textDim else c.warn, fontSize = 14.sp,
+                    when (status.attachedTo) {
+                        null -> status.detail
+                        "All audio" -> "Equalizer on all sound from the box, not on Spotify itself"
+                        else -> "Equalizer on ${status.attachedTo}"
+                    },
+                    color = c.textDim, fontSize = 14.sp,
                 )
-                if (status.attachedTo != "Spotify") {
-                    // Spotify only hands its audio over when its Equalizer menu is opened (or when it announces it).
+                val playing = com.taycanscreen.app.music.SpotifyController.nowPlaying.collectAsState().value?.paused == false
+                if (playing && status.attachedTo != "Spotify") {
+                    // Music is playing and the EQ isn't on it: one tap pauses and resumes for a moment,
+                    // which makes Spotify hand its audio over.
                     Text(
-                        "To put the EQ on Spotify: in Spotify, open Settings → Playback → Equalizer once, then come back.",
-                        color = c.textDim, fontSize = 13.sp,
+                        "Connect to Spotify", color = c.accent, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                            .clickable { com.taycanscreen.app.music.SpotifyController.ensureEq(byOwner = true) }.padding(vertical = 10.dp, horizontal = 4.dp),
                     )
                 }
             }
