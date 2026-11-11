@@ -627,7 +627,8 @@ private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: Gps
         context.getSharedPreferences("ui", Context.MODE_PRIVATE).edit().putString("directions", next.name).apply()
         AppLog.info("map", "Directions: ${next.name}")
     }
-    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(horizontal = 20.dp, vertical = 12.dp),
+    // In the margin above the search row (it ran into the Work button, seen in the car on build 171).
+    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(start = 20.dp, end = 20.dp, top = 5.dp, bottom = 12.dp),
         style = Filament.label(11.sp, c.textFaint, 0.18f))
     BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 20.dp, vertical = 10.dp),
         style = Filament.label(11.sp, c.textDim, 0.18f))
