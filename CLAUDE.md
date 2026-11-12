@@ -40,7 +40,9 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   gear signals, and (owner-approved 2026-11-12) the drive mode: the same recording with Range /
   Normal / Sport / Sport Plus as the states (`Discovery.MODE_STEPS`). Read-only; adds no new command
   types.
-- Discovered (not OBDb), owner-visible to verify: gear `7E0 22 0884` (5 P, 6 R, 7 N, 8 D).
+- Discovered (not OBDb), owner-visible to verify: gear `7E0 22 0884` (5 P, 6 R, 7 N, 8 D); drive mode
+  `710 22 2A9A` (9 Normal, 21 Range, 13 Sport and Sport Plus alike; owner-approved 2026-11-12, label
+  only until it has held up over several drives).
 - Every value must be checked against Car Scanner on the owner's iPhone before it's trusted. The MX+
   serves one device at a time, so compare in turns while parked.
 - Read-only. Never send "Reboot MMI" or any write/reset/actuation/coding command. The only car

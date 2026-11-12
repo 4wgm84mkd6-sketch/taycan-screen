@@ -140,6 +140,15 @@ class TaycanDecodeTest {
         check(Taycan.RANGE, "77A100A622AB6002F00\r77A212F07FD00AAAAAA", 47.0)   // 2025
     }
 
+    @Test fun driveMode() {
+        // Replies recorded in the owner's car, 2026-11-11 (gateway 710 answers as 77A).
+        assertEquals("NORMAL", Taycan.driveMode(decode(Taycan.DRIVE_MODE, "77A05622A9A0009")))
+        assertEquals("RANGE", Taycan.driveMode(decode(Taycan.DRIVE_MODE, "77A05622A9A0015")))
+        assertEquals("SPORT", Taycan.driveMode(decode(Taycan.DRIVE_MODE, "77A05622A9A000D")))
+        assertNull(Taycan.driveMode(decode(Taycan.DRIVE_MODE, "77A05622A9A0000")))
+        assertNull(Taycan.driveMode(null))
+    }
+
     @Test fun gear() {
         // Replies seen during the 2026-11-08 discovery test.
         assertEquals("P", Taycan.gearLetter(decode(Taycan.GEAR, "7E804620884 05".replace(" ", ""))))
