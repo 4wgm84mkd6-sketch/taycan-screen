@@ -188,6 +188,9 @@ class TaycanDecodeTest {
         assertTrue(ElmConnection.isAllowed("2208D2"))
         assertTrue(ElmConnection.isAllowed("1003"))
         assertTrue(ElmConnection.isAllowed("ATFCSD300000"))
+        assertTrue(ElmConnection.isAllowed("STSLCS"))   // prints the adapter's sleep settings
+        assertFalse(ElmConnection.isAllowed("STSLU"))   // changing them is not allowed
+        assertFalse(ElmConnection.isAllowed("STSLEEP"))
         assertFalse(ElmConnection.isAllowed("1101"))    // ECU reset
         assertFalse(ElmConnection.isAllowed("1002"))    // programming session
         assertFalse(ElmConnection.isAllowed("2E0101"))  // write data

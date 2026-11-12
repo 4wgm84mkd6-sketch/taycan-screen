@@ -272,6 +272,9 @@ object ObdEngine {
         c.send("ATST64")           // reply timeout 0x64 x 4 ms = 400 ms
         c.send("ATI")              // log adapter id
         c.send("STI")              // log STN firmware id
+        // Print the adapter's sleep settings into the log (adapter only; reads, changes nothing). The
+        // adapter stays powered in a locked car, and the owner suspects it of setting off the alarm.
+        c.send("STSLCS")
         recordVolts(c.send("ATRV")) // 12 V at the OBD port (adapter measurement)
     }
 
