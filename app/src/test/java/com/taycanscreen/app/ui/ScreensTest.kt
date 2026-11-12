@@ -59,8 +59,9 @@ class ScreensTest {
 
     private fun reading(sig: Signal, value: Double) = sig.id to Reading(value, "", Mono.ms())
 
-    private fun driving(speedKmh: Double = 75.6, gear: Double = 8.0, amps: Double = -62.0) = mapOf(
+    private fun driving(speedKmh: Double = 75.6, gear: Double = 8.0, amps: Double = -62.0, mode: Double = 9.0) = mapOf(
         reading(Taycan.SPEED_DIR, speedKmh), reading(Taycan.GEAR, gear), reading(Taycan.SOC_DISPLAY, 56.4),
+        reading(Taycan.DRIVE_MODE, mode),
         reading(Taycan.HV_VOLTAGE_1818, 640.0), reading(Taycan.HV_CURRENT, amps), reading(Taycan.RANGE, 164.0),
         reading(Taycan.PACK_T_MAX, 31.0), reading(Taycan.PACK_T_MIN, 29.0), reading(Taycan.LV_SOC, 95.0),
         reading(Taycan.LV_VOLTAGE, 13.4), reading(Taycan.HV_SOH, 98.8),
@@ -113,7 +114,7 @@ class ScreensTest {
 
     @Test fun driveOverTheLimit() {
         SpeedLimit.preview(35)
-        ObdEngine.preview(driving(speedKmh = 72.0, amps = 48.0), live)
+        ObdEngine.preview(driving(speedKmh = 72.0, amps = 48.0, mode = 13.0), live)
         shoot("03-drive-over-limit-regen")
     }
 

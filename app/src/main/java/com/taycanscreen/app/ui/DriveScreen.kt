@@ -107,6 +107,7 @@ private data class VehicleValues(
     val packMinC: V?,
     val packMaxC: V?,
     val gear: String?,
+    val mode: String?,
     val lowVolts: V?,
 ) {
     companion object {
@@ -126,6 +127,7 @@ private data class VehicleValues(
                 packMinC = r.v(Taycan.PACK_T_MIN, now),
                 packMaxC = r.v(Taycan.PACK_T_MAX, now),
                 gear = r.v(Taycan.GEAR, now)?.let { Taycan.gearLetter(it.x) },
+                mode = r.v(Taycan.DRIVE_MODE, now)?.let { Taycan.driveMode(it.x) },
                 lowVolts = adapterVolts,
             )
         }
@@ -508,6 +510,9 @@ private fun V3Panel(
                     }
                     if (v.gear != null) BasicText(v.gear, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
                     else Box(Modifier.size(34.dp, 38.dp), contentAlignment = Alignment.Center) { Missing(c, 24.dp) }
+                    // Drive mode under the gear letter (Sport Plus reads as SPORT: the car reports both alike).
+                    if (v.mode != null) BasicText(v.mode, style = Filament.label(15.sp, c.text, 0.1f))
+                    else Box(Modifier.size(34.dp, 18.dp), contentAlignment = Alignment.Center) { Missing(c, 16.dp) }
                     BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(15.sp, c.textDim, 0.1f))
                 }
             }

@@ -84,6 +84,11 @@ object Taycan {
     private val ENG_VSS_DIR = ObdCommand("7E0", "7E8", "115B", extendedSession = false)
     private val HVAC_OUTSIDE = ObdCommand("746", "7B0", "2609", extendedSession = false, flowControl = true)
     private val GW_RANGE = ObdCommand("710", "77A", "2AB6", extendedSession = false, flowControl = true)
+    /**
+     * Found by the owner-approved drive-mode test (2026-11-12), not in OBDb; owner approved reading it
+     * the same day. A single-frame reply (62 2A 9A 00 xx).
+     */
+    private val GW_MODE = ObdCommand("710", "77A", "2A9A", extendedSession = false)
     private val GW_12V_CAP = ObdCommand("710", "77A", "2A06", extendedSession = false, flowControl = true)
     private val GW_12V_VOLT = ObdCommand("710", "77A", "2A07", extendedSession = false, flowControl = true)
     private val GW_12V_SOC = ObdCommand("710", "77A", "2A0C", extendedSession = false)
@@ -132,6 +137,23 @@ object Taycan {
         6 -> "R"
         7 -> "N"
         8 -> "D"
+        else -> null
+    }
+
+    /**
+     * Drive mode, from discovery (not OBDb): 9 = Normal, 21 = Range, 13 = Sport and also Sport Plus (the
+     * car gives the same value for both). Steady in each mode over two passes, back to 9 on returning to
+     * Normal, and 9 in every gear in the 2026-11-08 recordings. What the value really is isn't known, so
+     * the screen only shows a label until it has held up over several drives. Read about every 3 s, on
+     * a cycle with room for it (see PollScheduleTest).
+     */
+    val DRIVE_MODE = Signal("DISC_DRIVE_MODE", "Drive mode (discovered)", GW_MODE,
+        len = 16, unit = "", pollEvery = 8, phase = 1, staleAfterMs = 10_000L)
+
+    fun driveMode(raw: Double?): String? = when (raw?.toInt()) {
+        9 -> "NORMAL"
+        21 -> "RANGE"
+        13 -> "SPORT"
         else -> null
     }
 
@@ -216,7 +238,7 @@ object Taycan {
         SPEED_DIR, GEAR, SOC_DISPLAY, SPEED, EM_TORQ_1, EM_TORQ_2, EM_RPM_1,
         HV_VOLTAGE_1818, HV_CURRENT, HV_VOLTAGE, PACK_T_MAX, PACK_T_MIN, HV_SOH,
     ) + CELL_MODULES + listOf(
-        RANGE, LV_VOLTAGE, LV_SOC, LV_CHARGE, LV_CAPACITY, LV_RESISTANCE,
+        DRIVE_MODE, RANGE, LV_VOLTAGE, LV_SOC, LV_CHARGE, LV_CAPACITY, LV_RESISTANCE,
         OUTSIDE, TRIP_USE_SHORT,
     ) + TIRES
 
