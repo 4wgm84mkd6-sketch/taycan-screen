@@ -928,6 +928,12 @@ private fun DockIcon(icon: ImageVector, description: String, active: Boolean, c:
 private fun sportColor(c: DriveColors) = if (c.isNight) Color(0xFFFF7A45) else Color(0xFFC2410C)
 
 /**
+ * Fill of the Quiet panels: nearly solid. At the map overlays' usual 78 % the street names behind showed
+ * through the large empty parts of the speed and range panels (on-car screenshot, build 194).
+ */
+private fun quietFill(c: DriveColors) = c.background.copy(alpha = 0.94f)
+
+/**
  * Quiet layout, drawn over the full-screen map ("Taycan Quiet Dash" board): speed bottom left, arrival
  * (or range) bottom right, the clock top right, and in the bottom middle one line of music, the power
  * bar in Sport, or the dock while [chrome] is up. A low tire brings up a card on the right.
@@ -959,14 +965,14 @@ private fun QuietOverlays(
         StatusRow(
             v, c, onLedger,
             Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp).height(72.dp)
-                .card(c.overlay, c.border).padding(start = 18.dp, end = 16.dp),
+                .card(quietFill(c), c.border).padding(start = 18.dp, end = 16.dp),
             fill = false,
         )
 
         // Speed: the same number, limit sign, gear and mode as Classic, in the same arrangement.
         Column(
             Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 28.dp)
-                .card(c.overlay, c.border)
+                .card(quietFill(c), c.border)
                 .onGloballyPositioned { targets.panel = it.boundsInRoot() }
                 .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp),
         ) {
@@ -981,7 +987,8 @@ private fun QuietOverlays(
             linkNote(link, carOk, now)?.let { note ->
                 BasicText(
                     note.text, Modifier.width(348.dp).padding(top = 10.dp),
-                    style = Filament.label(13.sp, if (note.warn) c.warn else c.textDim, 0.04f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    // Two lines: "CAR LINK NOT ANSWERING · STILL TRYING" was cut off in one.
+                    style = Filament.label(13.sp, if (note.warn) c.warn else c.textDim, 0.04f), maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -995,7 +1002,7 @@ private fun QuietOverlays(
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp), contentAlignment = Alignment.BottomCenter) {
             Appear(chrome, enter = Motion.FadeIn, exit = Motion.FadeOut) {
                 Row(
-                    Modifier.card(c.overlay, c.border).padding(horizontal = 10.dp)
+                    Modifier.card(quietFill(c), c.border).padding(horizontal = 10.dp)
                         .onGloballyPositioned { targets.dock = it.boundsInRoot() },
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -1014,7 +1021,7 @@ private fun QuietArrival(v: VehicleValues, c: DriveColors, modifier: Modifier, o
     val active by com.taycanscreen.app.nav.Nav.active.collectAsState()
     val prog by com.taycanscreen.app.nav.Nav.progress.collectAsState()
     val a = active
-    val shape = modifier.widthIn(min = 250.dp).card(c.overlay, c.border)
+    val shape = modifier.widthIn(min = 250.dp).card(quietFill(c), c.border)
     if (a == null) {
         Column(
             shape.clickable { onLedger("TRIP") }.padding(horizontal = 24.dp, vertical = 16.dp),
@@ -1070,7 +1077,7 @@ private fun QuietMusic(c: DriveColors, targets: DriveTargets, onOpenMusic: () ->
     val connected = status.link == SpotifyController.Link.Connected
     val playing = np?.paused == false
     Row(
-        Modifier.height(84.dp).card(c.overlay, c.border)
+        Modifier.height(84.dp).card(quietFill(c), c.border)
             .onGloballyPositioned { targets.nowPlaying = it.boundsInRoot() }
             .padding(start = 10.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1100,7 +1107,7 @@ private fun QuietPower(kw: V?, c: DriveColors) {
     val eased by animateFloatAsState((drive ?: 0.0).toFloat(), tween(320, easing = LinearEasing), label = "sportPower")
     val hot = sportColor(c)
     Column(
-        Modifier.width(560.dp).card(c.overlay, c.border).padding(horizontal = 24.dp, vertical = 16.dp),
+        Modifier.width(560.dp).card(quietFill(c), c.border).padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {

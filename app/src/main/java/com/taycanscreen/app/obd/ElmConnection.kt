@@ -29,7 +29,6 @@ class ElmConnection private constructor(
         private val ALLOWED = listOf(
             Regex("^AT[A-Z0-9]*$"),      // adapter configuration
             Regex("^STI$"),              // STN firmware id
-            Regex("^STSLCS$"),           // adapter's own sleep settings, printed (adapter only, changes nothing)
             Regex("^1003$"),             // extended diagnostic session (read access)
             Regex("^22[0-9A-F]{4}$"),    // read data by identifier
         )
