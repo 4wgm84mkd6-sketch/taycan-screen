@@ -37,7 +37,9 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   addresses or invent requests; if a signal isn't in OBDb, ask the owner first.
 - Exception (owner-approved 2026-11-08): `obd/Discovery.kt` may read (22 xxxx, default session) every
   identifier in fixed ranges on modules from OBDb's ECU list (714, 7E0, 710) to find turn-signal and
-  gear signals. Read-only; adds no new command types.
+  gear signals, and (owner-approved 2026-11-12) the drive mode: the same recording with Range /
+  Normal / Sport / Sport Plus as the states (`Discovery.MODE_STEPS`). Read-only; adds no new command
+  types.
 - Discovered (not OBDb), owner-visible to verify: gear `7E0 22 0884` (5 P, 6 R, 7 N, 8 D).
 - Every value must be checked against Car Scanner on the owner's iPhone before it's trusted. The MX+
   serves one device at a time, so compare in turns while parked.

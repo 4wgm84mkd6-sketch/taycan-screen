@@ -5,8 +5,8 @@ import com.taycanscreen.app.log.AppLog
 import com.taycanscreen.app.obd.IsoTp.toHex
 
 /**
- * Read-only discovery of signals that OBDb doesn't have (turn signals, gear), owner-approved
- * 2026-11-08. Only modules already known from OBDb are asked, only with 22 xxxx (read data by
+ * Read-only discovery of signals that OBDb doesn't have (turn signals, gear: owner-approved
+ * 2026-11-08; drive mode: owner-approved 2026-11-12). Only modules already known from OBDb are asked, only with 22 xxxx (read data by
  * identifier), in the default session. Nothing is written.
  *
  * Step 1 (scan): ask each module for every identifier in its range and note which ones answer.
@@ -36,7 +36,23 @@ object Discovery {
         "Back to P, blinkers OFF",
     )
 
+    /**
+     * Drive-mode test (owner-approved 2026-11-12): the same recording with the car's drive mode as the
+     * only thing that changes. "Normal" is recorded at the start and again at the end, so a value that
+     * merely drifts over time (counters, temperatures) can be told from one that follows the mode.
+     */
+    val MODE_STEPS = listOf(
+        "Drive mode: Normal",
+        "Drive mode: Range",
+        "Drive mode: Sport",
+        "Drive mode: Sport Plus",
+        "Drive mode: Normal again",
+    )
+
     const val ROUNDS_PER_STEP = 3
+
+    /** Reads of every identifier per state: two are enough for the mode test and keep it under 10 minutes. */
+    fun roundsFor(step: String): Int = if (step in MODE_STEPS) 2 else ROUNDS_PER_STEP
 
     sealed interface State {
         data object Idle : State
