@@ -7,6 +7,9 @@ import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -218,6 +221,9 @@ private fun DriveContent(
     }
     val v = VehicleValues.from(readings, lowVolts, now)
     val context = LocalContext.current
+    // Drive layout (Setup): Classic, or Quiet with the map filling the screen.
+    remember { UiEvents.loadLayout(context); true }
+    val quietLayout by UiEvents.quiet.collectAsState()
     val gps = remember { GpsInfo() }
     val targets = remember { DriveTargets() }
     val carOk = readings.values.any { it.value != null }
@@ -321,8 +327,8 @@ private fun DriveContent(
     val trip by com.taycanscreen.app.car.TripComputer.trip.collectAsState()
 
     Box(Modifier.fillMaxSize().background(c.background)) {
-        // Vehicle panel full height on the left (owner, 2026-11-09); map with the dock under it on the right.
-        Row(Modifier.fillMaxSize()) {
+        // The pieces both layouts are built from.
+        val leftPanel: @Composable (Modifier) -> Unit = { m ->
             V3Panel(
                 v, c, now, status, carOk, limit, sweepT,
                 arcPulse = rememberSince(targets.arcPulseAt, 1.0f),
@@ -333,64 +339,122 @@ private fun DriveContent(
                 onLedger = { tab -> ledgerTab = tab; panel = "ledger" },
                 onOpenMusic = { panel = "music" },
                 playerPulse = rememberSince(targets.nowPlayingPulseAt, 1.0f),
-                modifier = Modifier.width(420.dp).fillMaxHeight().background(c.panel)
-                    .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
-                    .onGloballyPositioned { targets.panel = it.boundsInRoot() },
+                modifier = m,
             )
-            // The map keeps running underneath the panels, so it's current when you close them.
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    MapArea(
-                        c, v.outsideF, locationGranted, gps, targets, Modifier.fillMaxSize(),
-                        onSearch = { saveAs = null; panel = "search" },
-                        onSaved = { kind ->
-                            // Home / Work: route there at once, or set it first.
-                            val here = gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) }
-                            if (!com.taycanscreen.app.nav.Nav.goSaved(kind, here)) {
-                                AppLog.info("nav", "${kind.replaceFirstChar { it.uppercase() }} not set yet: opening search to set it")
-                                saveAs = kind
-                                panel = "search"
-                            }
-                        },
+        }
+        val leftPanelShape = Modifier.width(420.dp).fillMaxHeight().background(c.panel)
+            .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
+        // The map keeps running underneath the panels, so it's current when you close them.
+        val mapArea: @Composable (Modifier, Boolean, Boolean) -> Unit = { m, quiet, chrome ->
+            MapArea(
+                c, v.outsideF, locationGranted, gps, targets, m,
+                onSearch = { saveAs = null; panel = "search" },
+                onSaved = { kind ->
+                    // Home / Work: route there at once, or set it first.
+                    val here = gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) }
+                    if (!com.taycanscreen.app.nav.Nav.goSaved(kind, here)) {
+                        AppLog.info("nav", "${kind.replaceFirstChar { it.uppercase() }} not set yet: opening search to set it")
+                        saveAs = kind
+                        panel = "search"
+                    }
+                },
+                quiet = quiet, chrome = chrome,
+            )
+        }
+        val panels: @Composable () -> Unit = {
+            // Panels ease in and out over the map instead of cutting.
+            Appear(panel == "search") {
+                SearchPanel(
+                    c, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
+                    onClose = { panel = null; saveAs = null }, modifier = Modifier.fillMaxSize(),
+                    initialSaveAs = saveAs,
+                )
+            }
+            Appear(
+                panel == "ledger",
+                enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { -it / 6 },
+                exit = fadeOut(tween(120)) + slideOutHorizontally(tween(160)) { -it / 6 },
+            ) {
+                LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = Modifier)
+            }
+            // Music and Sound are drawn in design px like everything else on this screen.
+            Appear(panel == "music") {
+                MusicPanel(
+                    c,
+                    onClose = { panel = null },
+                    onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
+                    modifier = Modifier.fillMaxSize(),
+                    onViewChange = { musicView = it },
+                )
+            }
+            Appear(panel == "audio") {
+                AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
+            }
+        }
+        val onNavigate = { saveAs = null; panel = if (panel == "search") null else "search" }
+        val onDockMusic = { panel = if (panel == "music") null else "music" }
+        val onDockAudio = { panel = if (panel == "audio") null else "audio" }
+        val onDockLedger = { panel = if (panel == "ledger") null else "ledger" }
+        val dock: @Composable (Modifier) -> Unit = { m ->
+            V3Dock(
+                c, themeMode, panel, trip?.distanceMi,
+                onCycleTheme = onCycleTheme, onOpenSetup = onOpenSetup,
+                onNavigate = onNavigate, onOpenMusic = onDockMusic, onOpenAudio = onDockAudio, onOpenLedger = onDockLedger,
+                modifier = m,
+            )
+        }
+        // Charging keeps the Classic panel in both layouts (its charging view lives there).
+        if (!quietLayout || charging) {
+            // Vehicle panel full height on the left (owner, 2026-11-09); map with the dock under it on the right.
+            Row(Modifier.fillMaxSize()) {
+                leftPanel(leftPanelShape.onGloballyPositioned { targets.panel = it.boundsInRoot() })
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        mapArea(Modifier.fillMaxSize(), false, true)
+                        panels()
+                    }
+                    dock(Modifier.fillMaxWidth().height(128.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() })
+                }
+            }
+        } else {
+            // Quiet (owner, 2026-11-12, "Taycan Quiet Dash" board): the map fills the screen and only
+            // speed, the next turn and arrival stay up. Everything else shows while the car is standing
+            // or for 8 s after the screen is touched. Nothing is locked at any speed: one touch brings
+            // every control back.
+            var touchedAt by remember { mutableLongStateOf(0L) }
+            val standing = (v.speedMph?.x ?: 0.0) < 1.0
+            val chrome = standing || (touchedAt != 0L && now - touchedAt < 8_000)
+            Box(
+                Modifier.fillMaxSize().pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial)
+                            val t = com.taycanscreen.app.util.Mono.ms()
+                            if (t - touchedAt > 250) touchedAt = t
+                        }
+                    }
+                },
+            ) {
+                mapArea(Modifier.fillMaxSize(), true, chrome && panel == null)
+                Appear(panel == null, Modifier.fillMaxSize(), Motion.FadeIn, Motion.FadeOut) {
+                    QuietOverlays(
+                        v, c, now, status, carOk, limit, worstTire(readings, now), readings, chrome, themeMode, targets,
+                        onLedger = { tab -> ledgerTab = tab; panel = "ledger" },
+                        onOpenMusic = { panel = "music" },
+                        onNavigate = onNavigate, onOpenAudio = onDockAudio,
+                        onCycleTheme = onCycleTheme, onOpenSetup = onOpenSetup,
                     )
-                    // Panels ease in and out over the map instead of cutting.
-                    Appear(panel == "search") {
-                        SearchPanel(
-                            c, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
-                            onClose = { panel = null; saveAs = null }, modifier = Modifier.fillMaxSize(),
-                            initialSaveAs = saveAs,
-                        )
-                    }
-                    Appear(
-                        panel == "ledger",
-                        enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { -it / 6 },
-                        exit = fadeOut(tween(120)) + slideOutHorizontally(tween(160)) { -it / 6 },
-                    ) {
-                        LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = Modifier)
-                    }
-                    // Music and Sound are drawn in design px like everything else on this screen.
-                    Appear(panel == "music") {
-                        MusicPanel(
-                            c,
-                            onClose = { panel = null },
-                            onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
-                            modifier = Modifier.fillMaxSize(),
-                            onViewChange = { musicView = it },
-                        )
-                    }
-                    Appear(panel == "audio") {
-                        AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
+                }
+                // With a panel open the screen is arranged like Classic, so every panel looks and works the same.
+                Appear(panel != null, Modifier.fillMaxSize(), Motion.FadeIn, Motion.FadeOut) {
+                    Row(Modifier.fillMaxSize()) {
+                        leftPanel(leftPanelShape)
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            Box(Modifier.fillMaxWidth().weight(1f)) { panels() }
+                            dock(Modifier.fillMaxWidth().height(128.dp))
+                        }
                     }
                 }
-                V3Dock(
-                    c, themeMode, panel, trip?.distanceMi,
-                    onCycleTheme = onCycleTheme, onOpenSetup = onOpenSetup,
-                    onNavigate = { saveAs = null; panel = if (panel == "search") null else "search" },
-                    onOpenMusic = { panel = if (panel == "music") null else "music" },
-                    onOpenAudio = { panel = if (panel == "audio") null else "audio" },
-                    onOpenLedger = { panel = if (panel == "ledger") null else "ledger" },
-                    modifier = Modifier.fillMaxWidth().height(128.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() },
-                )
             }
         }
         if (showStartup) {
@@ -437,40 +501,7 @@ private fun V3Panel(
         // Status row, top right (owner, 2026-11-10: less clutter): hotspot, a small battery with its %,
         // and the clock in the corner. The outside temperature is gone (Porsche's frame shows it).
         // Tap the battery for the energy ledger; press and hold the clock for a screenshot.
-        val soc = v.soc
-        val col = soc?.let { chargeColor(it.x, c) } ?: c.text
-        Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.weight(1f))
-            HotspotIcon(c, Modifier.size(34.dp, 28.dp))
-            Spacer(Modifier.width(18.dp))
-            Row(
-                Modifier.height(58.dp).clickable { onLedger("TRIP") },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                BatteryIcon(soc?.x, col, c, Modifier.size(48.dp, 26.dp))
-                BasicText(
-                    soc?.x?.roundToInt()?.let { "$it%" } ?: "–",
-                    Modifier.padding(start = 8.dp).alpha(if (soc?.dim == true) 0.45f else 1f),
-                    style = Filament.num(18.sp, 500, if (soc == null) c.textFaint else col),
-                )
-            }
-            Spacer(Modifier.width(22.dp))
-            BasicText(
-                java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("h:mm")),
-                Modifier.capBox(58.dp, pad = 2.dp).pointerInput(Unit) {
-                    detectTapGestures(onLongPress = {
-                        com.taycanscreen.app.log.Screenshots.capture("owner") { ok ->
-                            Toast.makeText(
-                                context,
-                                if (ok) "Screenshot saved. It goes with your next \"Send log to Claude\"." else "Couldn't take a screenshot",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    })
-                },
-                style = Filament.num(46.sp, 400, c.text).copy(letterSpacing = (-1).sp),
-            )
-        }
+        StatusRow(v, c, onLedger, Modifier.fillMaxWidth().height(58.dp), fill = true)
         if (tireWarn > 0) {
             // A real button (it was a line of small text): the whole bar opens the Tires page.
             val col = if (tireWarn > 1) c.danger else c.warn
@@ -496,25 +527,7 @@ private fun V3Panel(
                     Modifier.weight(1f).capBox(168.dp).alpha(if (v.speedMph?.dim == true) 0.45f else 1f)
                         .onGloballyPositioned { targets.arc = it.boundsInRoot().center },
                 )
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (limit != null) {
-                        val over = (v.speedMph?.x ?: 0.0) > limit.mph + 5
-                        // The one small thing a driver checks at speed: sized like a road sign, not a caption.
-                        Column(
-                            Modifier.width(84.dp).border(2.dp, if (over) c.warn else c.textDim).padding(top = 6.dp, bottom = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            BasicText("LIMIT", style = Filament.label(11.sp, if (over) c.warn else c.textDim, 0.1f, 500))
-                            BasicText("${limit.mph}", style = Filament.num(38.sp, 500, if (over) c.warn else c.text))
-                        }
-                    }
-                    if (v.gear != null) BasicText(v.gear, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
-                    else Box(Modifier.size(34.dp, 38.dp), contentAlignment = Alignment.Center) { Missing(c, 24.dp) }
-                    // Drive mode under the gear letter (Sport Plus reads as SPORT: the car reports both alike).
-                    if (v.mode != null) BasicText(v.mode, style = Filament.label(15.sp, c.text, 0.1f))
-                    else Box(Modifier.size(34.dp, 18.dp), contentAlignment = Alignment.Center) { Missing(c, 16.dp) }
-                    BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(15.sp, c.textDim, 0.1f))
-                }
+                SpeedSide(v, limit, c, c.text)
             }
             Spacer(Modifier.height(18.dp))
             PowerLine(
@@ -529,6 +542,70 @@ private fun V3Panel(
         } else {
             Spacer(Modifier.weight(1f))
         }
+    }
+}
+
+/** Hotspot, battery with its % (tap: energy ledger) and the clock (press and hold: screenshot). Both layouts. */
+@Composable
+private fun StatusRow(v: VehicleValues, c: DriveColors, onLedger: (String) -> Unit, modifier: Modifier, fill: Boolean) {
+    val context = LocalContext.current
+    val soc = v.soc
+    val col = soc?.let { chargeColor(it.x, c) } ?: c.text
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        if (fill) Spacer(Modifier.weight(1f))
+        HotspotIcon(c, Modifier.size(34.dp, 28.dp))
+        Spacer(Modifier.width(18.dp))
+        Row(
+            Modifier.height(58.dp).clickable { onLedger("TRIP") },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BatteryIcon(soc?.x, col, c, Modifier.size(48.dp, 26.dp))
+            BasicText(
+                soc?.x?.roundToInt()?.let { "$it%" } ?: "–",
+                Modifier.padding(start = 8.dp).alpha(if (soc?.dim == true) 0.45f else 1f),
+                style = Filament.num(18.sp, 500, if (soc == null) c.textFaint else col),
+            )
+        }
+        Spacer(Modifier.width(22.dp))
+        BasicText(
+            java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("h:mm")),
+            Modifier.capBox(58.dp, pad = 2.dp).pointerInput(Unit) {
+                detectTapGestures(onLongPress = {
+                    com.taycanscreen.app.log.Screenshots.capture("owner") { ok ->
+                        Toast.makeText(
+                            context,
+                            if (ok) "Screenshot saved. It goes with your next \"Send log to Claude\"." else "Couldn't take a screenshot",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                })
+            },
+            style = Filament.num(46.sp, 400, c.text).copy(letterSpacing = (-1).sp),
+        )
+    }
+}
+
+/** Right of the speed: the road's limit, the gear, the drive mode and the unit. Both layouts. */
+@Composable
+private fun SpeedSide(v: VehicleValues, limit: com.taycanscreen.app.car.SpeedLimit.Limit?, c: DriveColors, modeColor: Color) {
+    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (limit != null) {
+            val over = (v.speedMph?.x ?: 0.0) > limit.mph + 5
+            // The one small thing a driver checks at speed: sized like a road sign, not a caption.
+            Column(
+                Modifier.width(84.dp).border(2.dp, if (over) c.warn else c.textDim).padding(top = 6.dp, bottom = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                BasicText("LIMIT", style = Filament.label(11.sp, if (over) c.warn else c.textDim, 0.1f, 500))
+                BasicText("${limit.mph}", style = Filament.num(38.sp, 500, if (over) c.warn else c.text))
+            }
+        }
+        if (v.gear != null) BasicText(v.gear, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
+        else Box(Modifier.size(34.dp, 38.dp), contentAlignment = Alignment.Center) { Missing(c, 24.dp) }
+        // Drive mode under the gear letter (Sport Plus reads as SPORT: the car reports both alike).
+        if (v.mode != null) BasicText(v.mode, style = Filament.label(15.sp, modeColor, 0.1f))
+        else Box(Modifier.size(34.dp, 18.dp), contentAlignment = Alignment.Center) { Missing(c, 16.dp) }
+        BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(15.sp, c.textDim, 0.1f))
     }
 }
 
@@ -790,8 +867,6 @@ private fun V3Dock(
     onOpenLedger: () -> Unit,
     modifier: Modifier,
 ) {
-    val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()
-    val playing = SpotifyController.nowPlaying.collectAsState().value?.paused == false
     Row(
         modifier.background(c.background).drawBehind { drawLine(c.border, Offset(0f, density / 2), Offset(size.width, density / 2), density) }
             .padding(horizontal = 28.dp),
@@ -804,23 +879,35 @@ private fun V3Dock(
             style = Filament.label(18.sp, c.textFaint, 0.08f),
         )
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
-            DockIcon(FIcons.Navigate, if (panel == "search") "Close destination search" else "Search for a destination", panel == null || panel == "search", c, onClick = onNavigate)
-            DockIcon(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
-            // Amber corner light only when something is wrong: music is playing and the EQ isn't on it.
-            // (It used to stay amber whenever nothing was playing, which looked like a fault.)
-            DockIcon(FIcons.Eq, "Equalizer", panel == "audio", c, light = if (playing && eq.attachedTo != "Spotify") c.warn else null, onClick = onOpenAudio)
-            DockIcon(FIcons.Bolt, "Energy ledger", panel == "ledger", c, onClick = onOpenLedger)
-            val themeIcon = when (themeMode) {
-                ThemeMode.Auto -> FIcons.Auto
-                ThemeMode.Day -> FIcons.Sun
-                ThemeMode.Night -> FIcons.Moon
-            }
-            DockIcon(themeIcon, "Day/night: ${themeMode.label()}", false, c, onClick = onCycleTheme)
-            DockIcon(FIcons.Setup, "Setup", false, c, onClick = onOpenSetup)
+            DockIcons(c, themeMode, panel, onNavigate, onOpenMusic, onOpenAudio, onOpenLedger, onCycleTheme, onOpenSetup)
         }
         // Volume control removed (owner: the box's volume doesn't change the car's).
         Spacer(Modifier.width(230.dp))
     }
+}
+
+/** The six dock icons (no labels: owner, 2026-11-10). Both layouts. */
+@Composable
+private fun DockIcons(
+    c: DriveColors, themeMode: ThemeMode, panel: String?,
+    onNavigate: () -> Unit, onOpenMusic: () -> Unit, onOpenAudio: () -> Unit, onOpenLedger: () -> Unit,
+    onCycleTheme: () -> Unit, onOpenSetup: () -> Unit,
+) {
+    val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()
+    val playing = SpotifyController.nowPlaying.collectAsState().value?.paused == false
+    DockIcon(FIcons.Navigate, if (panel == "search") "Close destination search" else "Search for a destination", panel == null || panel == "search", c, onClick = onNavigate)
+    DockIcon(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
+    // Amber corner light only when something is wrong: music is playing and the EQ isn't on it.
+    // (It used to stay amber whenever nothing was playing, which looked like a fault.)
+    DockIcon(FIcons.Eq, "Equalizer", panel == "audio", c, light = if (playing && eq.attachedTo != "Spotify") c.warn else null, onClick = onOpenAudio)
+    DockIcon(FIcons.Bolt, "Energy ledger", panel == "ledger", c, onClick = onOpenLedger)
+    val themeIcon = when (themeMode) {
+        ThemeMode.Auto -> FIcons.Auto
+        ThemeMode.Day -> FIcons.Sun
+        ThemeMode.Night -> FIcons.Moon
+    }
+    DockIcon(themeIcon, "Day/night: ${themeMode.label()}", false, c, onClick = onCycleTheme)
+    DockIcon(FIcons.Setup, "Setup", false, c, onClick = onOpenSetup)
 }
 
 @Composable
@@ -831,6 +918,248 @@ private fun DockIcon(icon: ImageVector, description: String, active: Boolean, c:
             Box(Modifier.size(8.dp).clip(CircleShape).background(if (active) c.accent else Color.Transparent))
         }
         if (light != null) Box(Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 16.dp).size(12.dp).clip(CircleShape).background(light))
+    }
+}
+
+/** Sport accent for the Quiet layout: a warm orange-red, apart from amber (attention) and red (danger). */
+private fun sportColor(c: DriveColors) = if (c.isNight) Color(0xFFFF7A45) else Color(0xFFC2410C)
+
+/**
+ * Quiet layout, drawn over the full-screen map ("Taycan Quiet Dash" board): speed bottom left, arrival
+ * (or range) bottom right, the clock top right, and in the bottom middle one line of music, the power
+ * bar in Sport, or the dock while [chrome] is up. A low tire brings up a card on the right.
+ */
+@Composable
+private fun QuietOverlays(
+    v: VehicleValues,
+    c: DriveColors,
+    now: Long,
+    link: com.taycanscreen.app.obd.ObdStatus,
+    carOk: Boolean,
+    limit: com.taycanscreen.app.car.SpeedLimit.Limit?,
+    tireWarn: Int,
+    readings: Map<String, Reading>,
+    chrome: Boolean,
+    themeMode: ThemeMode,
+    targets: DriveTargets,
+    onLedger: (String) -> Unit,
+    onOpenMusic: () -> Unit,
+    onNavigate: () -> Unit,
+    onOpenAudio: () -> Unit,
+    onCycleTheme: () -> Unit,
+    onOpenSetup: () -> Unit,
+) {
+    val sport = v.mode == "SPORT"
+    // The right-hand panels step aside for the map controls while those are up.
+    val edge by animateDpAsState(if (chrome) 112.dp else 28.dp, tween(220), label = "edge")
+    Box(Modifier.fillMaxSize()) {
+        StatusRow(
+            v, c, onLedger,
+            Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp).height(72.dp)
+                .background(c.overlay).insetLine(c.border).padding(start = 18.dp, end = 16.dp),
+            fill = false,
+        )
+
+        // Speed: the same number, limit sign, gear and mode as Classic, in the same arrangement.
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 28.dp)
+                .background(c.overlay).insetLine(c.border)
+                .onGloballyPositioned { targets.panel = it.boundsInRoot() }
+                .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp),
+        ) {
+            Row(Modifier.width(348.dp), verticalAlignment = Alignment.Bottom) {
+                SpeedNumber(
+                    v.speedMph, c,
+                    Modifier.weight(1f).capBox(168.dp).alpha(if (v.speedMph?.dim == true) 0.45f else 1f)
+                        .onGloballyPositioned { targets.arc = it.boundsInRoot().center },
+                )
+                SpeedSide(v, limit, c, if (sport) sportColor(c) else c.text)
+            }
+            linkNote(link, carOk, now)?.let { note ->
+                BasicText(
+                    note.text, Modifier.width(348.dp).padding(top = 10.dp),
+                    style = Filament.label(13.sp, if (note.warn) c.warn else c.textDim, 0.04f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        QuietArrival(v, c, Modifier.align(Alignment.BottomEnd).padding(end = edge, bottom = 28.dp), onLedger)
+
+        if (tireWarn > 0) {
+            QuietTireCard(readings, now, tireWarn, c, Modifier.align(Alignment.CenterEnd).padding(end = edge)) { onLedger("TIRES") }
+        }
+
+        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp), contentAlignment = Alignment.BottomCenter) {
+            Appear(chrome, enter = Motion.FadeIn, exit = Motion.FadeOut) {
+                Row(
+                    Modifier.background(c.overlay).insetLine(c.border).padding(horizontal = 10.dp)
+                        .onGloballyPositioned { targets.dock = it.boundsInRoot() },
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    DockIcons(c, themeMode, null, onNavigate, onOpenMusic, onOpenAudio, { onLedger("TRIP") }, onCycleTheme, onOpenSetup)
+                }
+            }
+            Appear(!chrome && sport, enter = Motion.FadeIn, exit = Motion.FadeOut) { QuietPower(v.kw, c) }
+            Appear(!chrome && !sport, enter = Motion.FadeIn, exit = Motion.FadeOut) { QuietMusic(c, targets, onOpenMusic) }
+        }
+    }
+}
+
+/** Bottom right: with a route, when you arrive and the battery you arrive with; without one, the range. */
+@Composable
+private fun QuietArrival(v: VehicleValues, c: DriveColors, modifier: Modifier, onLedger: (String) -> Unit) {
+    val active by com.taycanscreen.app.nav.Nav.active.collectAsState()
+    val prog by com.taycanscreen.app.nav.Nav.progress.collectAsState()
+    val a = active
+    val shape = modifier.widthIn(min = 250.dp).background(c.overlay).insetLine(c.border)
+    if (a == null) {
+        Column(
+            shape.clickable { onLedger("TRIP") }.padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            BasicText("RANGE", style = Filament.label(15.sp, c.textDim, 0.1f))
+            val range = v.rangeMi
+            if (range == null) {
+                Box(Modifier.height(52.dp), contentAlignment = Alignment.CenterStart) { Missing(c, 40.dp) }
+            } else {
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BasicText(
+                        "${range.x.roundToInt()}", Modifier.alignByBaseline().alpha(if (range.dim) 0.45f else 1f),
+                        style = Filament.num(48.sp, 400, c.text),
+                    )
+                    BasicText("MI", Modifier.alignByBaseline(), style = Filament.label(18.sp, c.textDim, 0.1f))
+                }
+            }
+        }
+        return
+    }
+    val remaining = prog?.remainingM ?: a.route.distanceM
+    val arrive = prog?.arriveAtMs ?: (System.currentTimeMillis() + (a.route.durationS * 1000).toLong())
+    val minutes = ((arrive - System.currentTimeMillis()) / 60_000.0).coerceAtLeast(0.0)
+    val battery = com.taycanscreen.app.car.Arrival.pct(remaining, v.soc?.x, v.rangeMi?.x)
+    Column(shape.padding(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        BasicText("ARRIVE", style = Filament.label(15.sp, c.textDim, 0.1f))
+        BasicText(
+            java.time.Instant.ofEpochMilli(arrive).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("h:mm")),
+            style = Filament.num(48.sp, 400, c.text),
+        )
+        if (battery != null) {
+            val left = battery.roundToInt().coerceAtLeast(0)
+            val col = when { battery < 5 -> c.danger; battery < 10 -> c.warn; else -> c.accent }
+            BasicText("WITH $left% LEFT", style = Filament.label(20.sp, col, 0.04f, 500))
+            Box(Modifier.width(202.dp).height(5.dp).background(c.track)) {
+                Box(Modifier.fillMaxWidth((left / 100f).coerceIn(0f, 1f)).fillMaxHeight().background(col))
+            }
+        }
+        BasicText(
+            (if (minutes < 60) "${minutes.toInt()} MIN" else "%d H %02d".format((minutes / 60).toInt(), (minutes % 60).toInt())) +
+                " · " + com.taycanscreen.app.nav.RouteMath.formatDistance(remaining).uppercase(),
+            style = Filament.label(15.sp, c.textDim, 0.06f),
+        )
+    }
+}
+
+/** One line of music: play / pause, the title and the artist. Tap the words for the Music panel. */
+@Composable
+private fun QuietMusic(c: DriveColors, targets: DriveTargets, onOpenMusic: () -> Unit) {
+    val status by SpotifyController.status.collectAsState()
+    val np by SpotifyController.nowPlaying.collectAsState()
+    val connected = status.link == SpotifyController.Link.Connected
+    val playing = np?.paused == false
+    Row(
+        Modifier.height(84.dp).background(c.overlay).insetLine(c.border)
+            .onGloballyPositioned { targets.nowPlaying = it.boundsInRoot() }
+            .padding(start = 10.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        RoundButton(if (playing) FIcons.Pause else FIcons.Play, if (playing) "Pause" else "Play", c, 64, true) { SpotifyController.togglePlay() }
+        Column(
+            Modifier.widthIn(min = 160.dp, max = 400.dp).fillMaxHeight().clickable(onClick = onOpenMusic).padding(end = 14.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            BasicText(
+                if (connected) np?.title ?: "Nothing playing" else "Spotify",
+                style = Filament.text(22.sp, 600, c.text), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            BasicText(
+                if (connected) np?.artist?.ifBlank { null } ?: "Tap to browse" else status.detail.ifBlank { "Connecting…" },
+                style = Filament.text(17.sp, 500, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** Sport: power comes forward. The same centre-zero bar as Classic, thicker, with a large number. */
+@Composable
+private fun QuietPower(kw: V?, c: DriveColors) {
+    val drive = kw?.let { -it.x } // positive = drawing power
+    val eased by animateFloatAsState((drive ?: 0.0).toFloat(), tween(320, easing = LinearEasing), label = "sportPower")
+    val hot = sportColor(c)
+    Column(
+        Modifier.width(560.dp).background(c.overlay).insetLine(c.border).padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            BasicText("POWER", Modifier.alignByBaseline(), style = Filament.label(15.sp, c.textDim, 0.1f))
+            Spacer(Modifier.weight(1f))
+            if (drive == null) {
+                Box(Modifier.height(56.dp), contentAlignment = Alignment.Center) { Missing(c, 40.dp) }
+            } else {
+                BasicText(
+                    if (drive >= 0) "${drive.roundToInt()}" else "−${(-drive).roundToInt()}",
+                    Modifier.alignByBaseline().alpha(if (kw?.dim == true) 0.45f else 1f),
+                    style = Filament.num(60.sp, 400, if (drive < -0.5) c.accent else hot),
+                )
+            }
+            BasicText("kW", Modifier.alignByBaseline().padding(start = 8.dp), style = Filament.label(18.sp, c.text, 0.08f))
+        }
+        Canvas(Modifier.fillMaxWidth().height(20.dp)) {
+            val w = size.width
+            val y = size.height / 2
+            val x0 = w / 3f
+            drawRect(c.border, Offset(0f, y - density), Size(w, 2 * density))
+            drawRect(c.textDim, Offset(x0 - density, 0f), Size(2 * density, size.height))
+            if (drive != null) {
+                if (eased >= 0) {
+                    val len = (eased / 300f).coerceIn(0f, 1f) * (w - x0)
+                    drawRect(hot, Offset(x0, y - 6 * density), Size(len, 12 * density))
+                } else {
+                    val len = (-eased / 150f).coerceIn(0f, 1f) * x0
+                    drawRect(c.accent, Offset(x0 - len, y - 6 * density), Size(len, 12 * density))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            BasicText("REGEN", style = Filament.label(13.sp, c.textDim, 0.08f))
+            Spacer(Modifier.weight(1f))
+            BasicText("SPORT", style = Filament.label(13.sp, hot, 0.12f, 500))
+        }
+    }
+}
+
+/** A low tire, in words: which one, what it reads and what the car wants. Tap for all four. */
+@Composable
+private fun QuietTireCard(readings: Map<String, Reading>, now: Long, worst: Int, c: DriveColors, modifier: Modifier, onOpen: () -> Unit) {
+    val col = if (worst > 1) c.danger else c.warn
+    val names = mapOf("FL" to "Front left", "FR" to "Front right", "RL" to "Rear left", "RR" to "Rear right")
+    Column(
+        modifier.width(400.dp).background(c.raised).border(2.dp, col).clickable(onClick = onOpen).padding(horizontal = 22.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicText("TIRE PRESSURE LOW", style = Filament.label(15.sp, col, 0.06f, 500))
+        for (t in Taycan.TIRES) {
+            val corner = t.id.removePrefix("TAYCAN_TP_")
+            val bar = readings.fresh(t, now)
+            val set = readings["TAYCAN_TP_SET_$corner"]?.takeIf { now - it.at <= t.staleMs }?.value
+            if (bar == null || set == null || tireStatus(bar, set) == 0) continue
+            BasicText(names[corner] ?: corner, style = Filament.text(28.sp, 600, c.text))
+            BasicText(
+                "%.0f psi · the car wants %.0f".format(bar * 14.5038, set * 14.5038),
+                style = Filament.text(20.sp, 500, col),
+            )
+        }
+        BasicText("Tap for all four tires", style = Filament.text(16.sp, 500, c.textDim))
     }
 }
 

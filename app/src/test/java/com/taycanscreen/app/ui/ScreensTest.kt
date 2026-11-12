@@ -79,6 +79,7 @@ class ScreensTest {
     fun setUp() {
         UiEvents.preview = true
         UiEvents.openPanel.value = null
+        UiEvents.quiet.value = false
         ObdEngine.attach(ApplicationProvider.getApplicationContext())
         ObdEngine.preview(driving(), live)
         SpotifyController.preview(SpotifyController.Status(SpotifyController.Link.Connected), playing())
@@ -131,8 +132,8 @@ class ScreensTest {
         shoot("05-parked-day", night = false)
     }
 
-    @Test fun route() {
-        // A short route through Honolulu: right on South Street, then straight on Alapai Street.
+    /** A short route through town: right at the next corner, then straight on. */
+    private fun withRoute(block: () -> Unit) {
         val a = LatLon(21.3000, -157.8600); val b = LatLon(21.3010, -157.8600)
         val c2 = LatLon(21.3010, -157.8560); val d = LatLon(21.3050, -157.8560)
         val steps = listOf(
@@ -143,10 +144,47 @@ class ScreensTest {
         )
         Nav.preview(Place("Honolulu Hale", "530 S King St", d.lat, d.lon), Route(listOf(a, b, c2, d), 971.0, 240.0, steps), LatLon(21.3004, -157.8600))
         try {
-            shoot("10-route")
+            block()
         } finally {
             Nav.preview(null, null, null)
         }
+    }
+
+    @Test fun route() = withRoute { shoot("10-route") }
+
+    private fun quiet(name: String, night: Boolean = true) {
+        UiEvents.quiet.value = true
+        try {
+            shoot(name, night)
+        } finally {
+            UiEvents.quiet.value = false
+        }
+    }
+
+    @Test fun quietDrive() = quiet("13-quiet-drive")
+
+    @Test fun quietRoute() = withRoute { quiet("14-quiet-route") }
+
+    @Test fun quietParked() {
+        // Standing: the map controls, search and the dock are up.
+        ObdEngine.preview(driving(speedKmh = 0.0, gear = 5.0, amps = -3.0), live)
+        quiet("15-quiet-parked-day", night = false)
+    }
+
+    @Test fun quietSport() {
+        ObdEngine.preview(driving(speedKmh = 99.8, amps = -290.0, mode = 13.0), live)
+        SpeedLimit.preview(65)
+        quiet("16-quiet-sport")
+    }
+
+    @Test fun quietTire() {
+        val low = driving() + mapOf(
+            reading(Taycan.TIRE_RL, 2.2),
+            "TAYCAN_TP_SET_RL" to Reading(2.9, "", Mono.ms()),
+            "TAYCAN_TP_SET_FL" to Reading(2.9, "", Mono.ms()),
+        )
+        ObdEngine.preview(low, live)
+        quiet("17-quiet-tire")
     }
 
     @Test fun tireWarning() {

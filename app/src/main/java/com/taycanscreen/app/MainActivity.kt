@@ -371,6 +371,7 @@ private fun MainScreen(
                 ) {
                     UpdatePanel(updates, onOpenInstallSetting)
                     SendLogPanel()
+                    LayoutPanel()
                     Panel {
                         Text("Home screen", color = Palette.TextDim, fontSize = 16.sp)
                         Text(
@@ -383,6 +384,25 @@ private fun MainScreen(
                 }
                 StatusPanel(obd, Modifier.fillMaxSize())
             }
+        }
+    }
+}
+
+/** Classic or Quiet Drive screen. Classic stays the default; the owner switches here and can switch back. */
+@Composable
+private fun LayoutPanel() {
+    val context = LocalContext.current
+    remember { com.taycanscreen.app.ui.UiEvents.loadLayout(context); true }
+    val quiet by com.taycanscreen.app.ui.UiEvents.quiet.collectAsState()
+    Panel {
+        Text("Drive screen layout", color = Palette.TextDim, fontSize = 16.sp)
+        Text(
+            if (quiet) "Quiet: the map fills the screen. Speed, the next turn and arrival sit in the corners. The other controls appear when you touch the screen or stop."
+            else "Classic: speed, power and music in a panel on the left, the map on the right.",
+            color = Palette.Text, fontSize = 16.sp,
+        )
+        BigButton(if (quiet) "Switch to Classic" else "Switch to Quiet") {
+            com.taycanscreen.app.ui.UiEvents.setQuiet(context, !quiet)
         }
     }
 }

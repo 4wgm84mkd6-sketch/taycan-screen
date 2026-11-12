@@ -165,6 +165,9 @@ fun MapArea(
     onSearch: () -> Unit = {},
     /** Home / Work tapped (or the search box pulled down: "home"). */
     onSaved: (String) -> Unit = {},
+    /** Quiet layout: the map fills the screen and its controls only show while [chrome] is true. */
+    quiet: Boolean = false,
+    chrome: Boolean = true,
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
@@ -278,10 +281,12 @@ fun MapArea(
 
         // v3: what's ahead and behind, in local terms (mauka / makai / Diamond Head / ʻEwa) or compass.
         // Tap to switch between the two.
-        DirectionLabels(gps, northUp, c)
+        if (!quiet || chrome) DirectionLabels(gps, northUp, c)
 
+        // Quiet layout: the controls fade away while driving and sit below the clock when shown.
+        Appear(!quiet || chrome, Modifier.align(Alignment.TopEnd), Motion.FadeIn, Motion.FadeOut) {
         Column(
-            Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp),
+            Modifier.padding(top = if (quiet) 100.dp else 16.dp, end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.End,
         ) {
@@ -342,6 +347,7 @@ fun MapArea(
                 }
             }
         }
+        }
 
         // While there's no fix the reticle on the map says so ("SEARCHING · GPS · n/n SAT"); the separate
         // chip that repeated it in the corner is gone.
@@ -352,7 +358,7 @@ fun MapArea(
         // Top left: the search box with Home and Work (owner, 2026-11-10; pull the box down to go home),
         // or during a route the next turn with the trip details under it.
         Column(Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Appear(activeRoute == null, enter = Motion.FadeIn, exit = Motion.FadeOut) {
+            Appear(activeRoute == null && (!quiet || chrome), enter = Motion.FadeIn, exit = Motion.FadeOut) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     var pull by remember { mutableFloatStateOf(0f) }
                     val pullDp = with(LocalDensity.current) { pull.toDp() }
@@ -399,12 +405,13 @@ fun MapArea(
                 }
             }
             Appear(activeRoute != null, enter = Motion.CardIn, exit = Motion.FadeOut) { NextTurnBanner(c, Modifier.width(460.dp)) }
-            RouteCard(c, Modifier.width(460.dp))
+            // Quiet layout: arrival is in the corner; the card (details, Waze, End) shows with the controls.
+            if (!quiet || chrome || activeRoute == null) RouteCard(c, Modifier.width(460.dp))
         }
 
         BasicText(
             if (satellite) MapTheme.SATELLITE_ATTRIBUTION else MapTheme.ATTRIBUTION,
-            Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp)
+            Modifier.align(if (quiet) Alignment.CenterStart else Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp)
                 .background(c.overlay).padding(horizontal = 6.dp, vertical = 2.dp),
             style = Filament.text(10.sp, 400, c.textFaint),
         )
