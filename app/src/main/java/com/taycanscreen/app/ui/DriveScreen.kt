@@ -506,7 +506,7 @@ private fun V3Panel(
             // A real button (it was a line of small text): the whole bar opens the Tires page.
             val col = if (tireWarn > 1) c.danger else c.warn
             Row(
-                Modifier.padding(top = 8.dp).fillMaxWidth().height(56.dp).border(1.5.dp, col).clickable { onLedger("TIRES") }.padding(horizontal = 16.dp),
+                Modifier.padding(top = 8.dp).fillMaxWidth().height(56.dp).cardLine(1.5.dp, col).clickable { onLedger("TIRES") }.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BasicText("TIRE PRESSURE LOW", Modifier.weight(1f), style = Filament.label(15.sp, col, 0.06f, 500))
@@ -593,7 +593,7 @@ private fun SpeedSide(v: VehicleValues, limit: com.taycanscreen.app.car.SpeedLim
             val over = (v.speedMph?.x ?: 0.0) > limit.mph + 5
             // The one small thing a driver checks at speed: sized like a road sign, not a caption.
             Column(
-                Modifier.width(84.dp).border(2.dp, if (over) c.warn else c.textDim).padding(top = 6.dp, bottom = 4.dp),
+                Modifier.width(84.dp).border(2.dp, if (over) c.warn else c.textDim, RoundedCornerShape(8.dp)).padding(top = 6.dp, bottom = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 BasicText("LIMIT", style = Filament.label(11.sp, if (over) c.warn else c.textDim, 0.1f, 500))
@@ -800,7 +800,7 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
         }
         Spacer(Modifier.height(16.dp))
         Box(
-            Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(4.dp)).background(c.coverBg).clickable(onClick = onOpenMusic),
+            Modifier.fillMaxWidth().weight(1f).clip(CardShape).background(c.coverBg).clickable(onClick = onOpenMusic),
         ) {
             val bmp = art
             if (connected && bmp != null) {
@@ -956,14 +956,14 @@ private fun QuietOverlays(
         StatusRow(
             v, c, onLedger,
             Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp).height(72.dp)
-                .background(c.overlay).insetLine(c.border).padding(start = 18.dp, end = 16.dp),
+                .card(c.overlay, c.border).padding(start = 18.dp, end = 16.dp),
             fill = false,
         )
 
         // Speed: the same number, limit sign, gear and mode as Classic, in the same arrangement.
         Column(
             Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 28.dp)
-                .background(c.overlay).insetLine(c.border)
+                .card(c.overlay, c.border)
                 .onGloballyPositioned { targets.panel = it.boundsInRoot() }
                 .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp),
         ) {
@@ -992,7 +992,7 @@ private fun QuietOverlays(
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp), contentAlignment = Alignment.BottomCenter) {
             Appear(chrome, enter = Motion.FadeIn, exit = Motion.FadeOut) {
                 Row(
-                    Modifier.background(c.overlay).insetLine(c.border).padding(horizontal = 10.dp)
+                    Modifier.card(c.overlay, c.border).padding(horizontal = 10.dp)
                         .onGloballyPositioned { targets.dock = it.boundsInRoot() },
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -1011,7 +1011,7 @@ private fun QuietArrival(v: VehicleValues, c: DriveColors, modifier: Modifier, o
     val active by com.taycanscreen.app.nav.Nav.active.collectAsState()
     val prog by com.taycanscreen.app.nav.Nav.progress.collectAsState()
     val a = active
-    val shape = modifier.widthIn(min = 250.dp).background(c.overlay).insetLine(c.border)
+    val shape = modifier.widthIn(min = 250.dp).card(c.overlay, c.border)
     if (a == null) {
         Column(
             shape.clickable { onLedger("TRIP") }.padding(horizontal = 24.dp, vertical = 16.dp),
@@ -1067,7 +1067,7 @@ private fun QuietMusic(c: DriveColors, targets: DriveTargets, onOpenMusic: () ->
     val connected = status.link == SpotifyController.Link.Connected
     val playing = np?.paused == false
     Row(
-        Modifier.height(84.dp).background(c.overlay).insetLine(c.border)
+        Modifier.height(84.dp).card(c.overlay, c.border)
             .onGloballyPositioned { targets.nowPlaying = it.boundsInRoot() }
             .padding(start = 10.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1097,7 +1097,7 @@ private fun QuietPower(kw: V?, c: DriveColors) {
     val eased by animateFloatAsState((drive ?: 0.0).toFloat(), tween(320, easing = LinearEasing), label = "sportPower")
     val hot = sportColor(c)
     Column(
-        Modifier.width(560.dp).background(c.overlay).insetLine(c.border).padding(horizontal = 24.dp, vertical = 16.dp),
+        Modifier.width(560.dp).card(c.overlay, c.border).padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
@@ -1144,7 +1144,7 @@ private fun QuietTireCard(readings: Map<String, Reading>, now: Long, worst: Int,
     val col = if (worst > 1) c.danger else c.warn
     val names = mapOf("FL" to "Front left", "FR" to "Front right", "RL" to "Rear left", "RR" to "Rear right")
     Column(
-        modifier.width(400.dp).background(c.raised).border(2.dp, col).clickable(onClick = onOpen).padding(horizontal = 22.dp, vertical = 18.dp),
+        modifier.width(400.dp).cardLine(2.dp, col, c.raised).clickable(onClick = onOpen).padding(horizontal = 22.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         BasicText("TIRE PRESSURE LOW", style = Filament.label(15.sp, col, 0.06f, 500))

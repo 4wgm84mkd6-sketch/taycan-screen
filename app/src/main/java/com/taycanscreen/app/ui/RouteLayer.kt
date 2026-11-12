@@ -160,7 +160,7 @@ fun NextTurnBanner(c: DriveColors, modifier: Modifier) {
     val here = prog?.onRoute
     fun dir(s: Step): String? = s.bearingAfter?.let { com.taycanscreen.app.nav.LocalDirections.name(it, here, mode) }
     Column(
-        modifier.widthIn(min = 300.dp, max = 460.dp).background(c.overlay).border(1.dp, c.border).padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 14.dp),
+        modifier.widthIn(min = 300.dp, max = 460.dp).cardLine(1.dp, c.border, c.overlay).padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         when {
@@ -219,7 +219,7 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
     if (a == null) {
         val msg = error ?: busy ?: return
         Row(
-            modifier.height(72.dp).background(c.overlay).border(1.dp, if (error != null) c.warn else c.border).padding(start = 18.dp),
+            modifier.height(72.dp).cardLine(1.dp, if (error != null) c.warn else c.border, c.overlay).padding(start = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -241,7 +241,7 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
     // Under the next-turn card, top left (owner, 2026-11-10): arrival and distance, then battery on
     // arrival with the Waze hand-off and End.
     Column(
-        modifier.background(c.overlay).border(1.dp, c.border).padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+        modifier.cardLine(1.dp, c.border, c.overlay).padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -274,7 +274,7 @@ fun RouteCard(c: DriveColors, modifier: Modifier) {
 @Composable
 private fun CardButton(label: String, c: DriveColors, onClick: () -> Unit) {
     Box(
-        Modifier.height(64.dp).widthIn(min = 96.dp).border(1.dp, c.lineStrong).clickable(onClick = onClick).padding(horizontal = 18.dp),
+        Modifier.height(64.dp).widthIn(min = 96.dp).cardLine(1.dp, c.lineStrong).clickable(onClick = onClick).padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center,
     ) { BasicText(label, style = Filament.label(15.sp, c.text, 0.08f, 500)) }
 }

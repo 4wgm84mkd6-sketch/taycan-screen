@@ -243,7 +243,7 @@ fun MusicPanel(
 @Composable
 private fun SquareButton(icon: ImageVector, label: String, c: DriveColors, onClick: () -> Unit) {
     Box(
-        Modifier.size(72.dp, 64.dp).background(c.raised).insetLine(c.border).clickable(onClick = onClick),
+        Modifier.size(72.dp, 64.dp).card(c.raised, c.border).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, label, tint = c.text, modifier = Modifier.size(28.dp)) }
 }
@@ -251,7 +251,7 @@ private fun SquareButton(icon: ImageVector, label: String, c: DriveColors, onCli
 @Composable
 private fun Tab(label: String, on: Boolean, c: DriveColors, onClick: () -> Unit) {
     Box(
-        Modifier.height(64.dp).background(if (on) c.accentSoft else Color.Transparent).insetLine(if (on) c.accentLine else c.border)
+        Modifier.height(64.dp).card(if (on) c.accentSoft else Color.Transparent, if (on) c.accentLine else c.border)
             .clickable(onClick = onClick).padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center,
     ) { BasicText(label, style = Filament.label(14.sp, if (on) c.accent else c.textDim, 0.06f, 500)) }
@@ -260,8 +260,7 @@ private fun Tab(label: String, on: Boolean, c: DriveColors, onClick: () -> Unit)
 @Composable
 private fun WideButton(label: String, c: DriveColors, primary: Boolean = false, onClick: () -> Unit) {
     Box(
-        Modifier.height(64.dp).widthIn(min = 150.dp).background(if (primary) c.accent else c.raised)
-            .insetLine(if (primary) c.accent else c.lineStrong).clickable(onClick = onClick).padding(horizontal = 24.dp),
+        Modifier.height(64.dp).widthIn(min = 150.dp).card(if (primary) c.accent else c.raised, if (primary) c.accent else c.lineStrong).clickable(onClick = onClick).padding(horizontal = 24.dp),
         contentAlignment = Alignment.Center,
     ) { BasicText(label, style = Filament.text(20.sp, 600, if (primary) c.onAccent else c.text), maxLines = 1) }
 }
@@ -326,7 +325,7 @@ private fun QuickPlayRow(show: com.taycanscreen.app.music.QuickPlay.Show, subtit
     val msg by com.taycanscreen.app.music.QuickPlay.message.collectAsState()
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
-            Modifier.fillMaxWidth().height(80.dp).background(c.raised).insetLine(c.accentLine)
+            Modifier.fillMaxWidth().height(80.dp).card(c.raised, c.accentLine)
                 .clickable { com.taycanscreen.app.music.QuickPlay.play(context, show) }.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),

@@ -292,7 +292,7 @@ fun MapArea(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            Column(Modifier.background(c.overlay, Filament.CutS).insetLine(c.border)) {
+            Column(Modifier.card(c.overlay, c.border)) {
                 MapButton(FIcons.Plus, "Zoom in", c.text) { MapHolder.map?.animateCamera(CameraUpdateFactory.zoomIn()) }
                 Box(Modifier.padding(horizontal = 20.dp).width(40.dp).height(1.dp).background(c.border))
                 MapButton(FIcons.Minus, "Zoom out", c.text) { MapHolder.map?.animateCamera(CameraUpdateFactory.zoomOut()) }
@@ -305,7 +305,7 @@ fun MapArea(
             // Map size, custom (owner, 2026-11-10): tap Aa, then − / + (levels 1–10).
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (sizeOpen) {
-                    Row(Modifier.height(MAP_BTN).background(c.overlay, Filament.CutS).insetLine(c.accentLine), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.height(MAP_BTN).card(c.overlay, c.accentLine), verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             Modifier.size(MAP_BTN).clickable { pendingLevel = (pendingLevel - 1).coerceAtLeast(MapSize.MIN); sizeTouchedAt = System.currentTimeMillis() },
                             contentAlignment = Alignment.Center,
@@ -318,7 +318,7 @@ fun MapArea(
                     }
                 }
                 Column(
-                    Modifier.size(MAP_BTN).background(c.overlay, Filament.CutS).insetLine(if (sizeOpen) c.accentLine else c.border).clickable {
+                    Modifier.size(MAP_BTN).card(c.overlay, if (sizeOpen) c.accentLine else c.border).clickable {
                         sizeOpen = !sizeOpen
                         sizeTouchedAt = System.currentTimeMillis()
                     },
@@ -331,7 +331,7 @@ fun MapArea(
             }
             // Map / satellite.
             Column(
-                Modifier.size(MAP_BTN).background(c.overlay, Filament.CutS).insetLine(c.border).clickable {
+                Modifier.size(MAP_BTN).card(c.overlay, c.border).clickable {
                     satellite = !satellite
                     prefs.edit().putString("map_style", if (satellite) "satellite" else "map").apply()
                     AppLog.info("map", if (satellite) "Satellite view" else "Map view")
@@ -342,7 +342,7 @@ fun MapArea(
                 Icon(FIcons.Layers, if (satellite) "Satellite (tap for map)" else "Map (tap for satellite)", tint = c.accent, modifier = Modifier.size(32.dp))
                 BasicText(if (satellite) "SAT" else "MAP", Modifier.padding(top = 2.dp), style = Filament.label(12.sp, c.textDim, 0.08f))
             }
-            Box(Modifier.background(c.overlay, Filament.CutS).insetLine(c.border)) {
+            Box(Modifier.card(c.overlay, c.border)) {
                 MapButton(FIcons.Recenter, "Recenter", c.text) {
                     following = true
                     AppLog.info("map", "Recenter")
@@ -366,7 +366,7 @@ fun MapArea(
                     val pullDp = with(LocalDensity.current) { pull.toDp() }
                     Row(
                         Modifier.offset(y = (pullDp * 0.5f).coerceAtMost(48.dp)).width(420.dp).height(72.dp)
-                            .background(c.overlay).insetLine(if (pull > 90f) c.accentLine else c.border)
+                            .card(c.overlay, if (pull > 90f) c.accentLine else c.border)
                             .pointerInput(Unit) {
                                 detectVerticalDragGestures(
                                     onDragStart = { pull = 0f },
@@ -396,7 +396,7 @@ fun MapArea(
                     }
                     for (kind in listOf("home", "work")) {
                         Column(
-                            Modifier.size(72.dp).background(c.overlay).insetLine(c.border).clickable { onSaved(kind) },
+                            Modifier.size(72.dp).card(c.overlay, c.border).clickable { onSaved(kind) },
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
@@ -421,7 +421,7 @@ fun MapArea(
             BasicText(
                 "Allow location to show where you are",
                 Modifier.align(Alignment.TopStart).padding(start = 24.dp, top = 24.dp)
-                    .background(c.overlay, Filament.CutS).padding(horizontal = 14.dp, vertical = 10.dp),
+                    .cardFill(c.overlay).padding(horizontal = 14.dp, vertical = 10.dp),
                 style = Filament.text(16.sp, 500, c.text),
             )
         }
@@ -652,7 +652,7 @@ private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: Gps
 @Composable
 private fun NorthButton(northUp: Boolean, gps: GpsInfo, c: DriveColors, onToggle: () -> Unit) {
     Column(
-        Modifier.size(MAP_BTN).background(c.overlay, Filament.CutS).insetLine(c.border).clickable(onClick = onToggle),
+        Modifier.size(MAP_BTN).card(c.overlay, c.border).clickable(onClick = onToggle),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -669,14 +669,12 @@ private fun NorthButton(northUp: Boolean, gps: GpsInfo, c: DriveColors, onToggle
 fun Modifier.insetLine(color: Color) = this.drawWithContent {
     drawContent()
     val s = density
-    val cut = 0f // v3: square corners
-    val w = size.width
-    val h = size.height
-    val p = Path().apply {
-        moveTo(cut, s / 2); lineTo(w - s / 2, s / 2); lineTo(w - s / 2, h - cut)
-        lineTo(w - cut, h - s / 2); lineTo(s / 2, h - s / 2); lineTo(s / 2, cut); close()
-    }
-    drawPath(p, color, style = Stroke(s))
+    // Rounded like every card (owner, 2026-11-12); the line sits just inside the edge.
+    val r = (CARD_RADIUS.toPx() - s / 2).coerceAtLeast(0f)
+    drawRoundRect(
+        color, Offset(s / 2, s / 2), Size(size.width - s, size.height - s),
+        androidx.compose.ui.geometry.CornerRadius(r, r), style = Stroke(s),
+    )
 }
 
 /**

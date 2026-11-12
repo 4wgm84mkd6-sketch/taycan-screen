@@ -118,7 +118,7 @@ fun SearchPanel(
         Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             QueryField(query, "Where to?", c, Modifier.weight(1f).fillMaxHeight()) { query = ""; shift = true }
             Box(
-                Modifier.size(72.dp, 64.dp).background(c.raised, Filament.CutS).insetLine(c.border).clickable(onClick = onClose),
+                Modifier.size(72.dp, 64.dp).card(c.raised, c.border).clickable(onClick = onClose),
                 contentAlignment = Alignment.Center,
             ) { Icon(FIcons.Close, "Close search", tint = c.text, modifier = Modifier.size(28.dp)) }
         }
@@ -195,7 +195,7 @@ internal fun QueryField(query: String, placeholder: String, c: DriveColors, modi
         0f, 1f, infiniteRepeatable(tween(530, easing = LinearEasing), RepeatMode.Reverse), label = "blink",
     )
     Row(
-        modifier.background(c.raised, Filament.CutS).insetLine(c.accentLine).padding(start = 18.dp, end = 6.dp),
+        modifier.card(c.raised, c.accentLine).padding(start = 18.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -221,7 +221,7 @@ internal fun QueryField(query: String, placeholder: String, c: DriveColors, modi
 private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors, modifier: Modifier, onGo: () -> Unit, onEdit: () -> Unit) {
     val title = kind.replaceFirstChar { it.uppercase() }
     Row(
-        modifier.height(68.dp).background(c.raised, Filament.CutS).clickable(onClick = onGo).padding(start = 16.dp),
+        modifier.height(68.dp).cardFill(c.raised).clickable(onClick = onGo).padding(start = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -249,7 +249,7 @@ private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors,
 @Composable
 private fun PlaceRow(p: Place, icon: ImageVector, near: LatLon?, c: DriveColors, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(68.dp).background(c.raised, Filament.CutS).clickable(onClick = onClick).padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().height(68.dp).cardFill(c.raised).clickable(onClick = onClick).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {

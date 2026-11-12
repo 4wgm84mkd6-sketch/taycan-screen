@@ -127,7 +127,7 @@ fun AudioPanel(c: DriveColors, onClose: () -> Unit, modifier: Modifier = Modifie
             }
         }
         Column(
-            Modifier.fillMaxWidth().weight(1f).background(c.raised).insetLine(c.border).padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().weight(1f).card(c.raised, c.border).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             EqBands(settings.bands, EqEngine.effectiveBands(), c, Modifier.fillMaxWidth().weight(1f))
@@ -221,7 +221,7 @@ private fun BandSlider(value: Float, c: DriveColors, modifier: Modifier, onChang
 @Composable
 private fun Chip(label: String, on: Boolean, c: DriveColors, onClick: () -> Unit) {
     Box(
-        Modifier.fillMaxHeight().background(if (on) c.accentSoft else Color.Transparent).insetLine(if (on) c.accentLine else c.border)
+        Modifier.fillMaxHeight().card(if (on) c.accentSoft else Color.Transparent, if (on) c.accentLine else c.border)
             .clickable(onClick = onClick).padding(horizontal = 20.dp),
         contentAlignment = Alignment.Center,
     ) { BasicText(label, style = Filament.text(18.sp, if (on) 600 else 500, if (on) c.accent else c.text), maxLines = 1) }
@@ -230,7 +230,7 @@ private fun Chip(label: String, on: Boolean, c: DriveColors, onClick: () -> Unit
 @Composable
 private fun Button(label: String, c: DriveColors, accent: Boolean = false, onClick: () -> Unit) {
     Box(
-        Modifier.height(60.dp).background(if (accent) c.accentSoft else c.raised).insetLine(if (accent) c.accentLine else c.lineStrong)
+        Modifier.height(60.dp).card(if (accent) c.accentSoft else c.raised, if (accent) c.accentLine else c.lineStrong)
             .clickable(onClick = onClick).padding(horizontal = 22.dp),
         contentAlignment = Alignment.Center,
     ) { BasicText(label, style = Filament.label(14.sp, if (accent) c.accent else c.text, 0.08f, 500)) }

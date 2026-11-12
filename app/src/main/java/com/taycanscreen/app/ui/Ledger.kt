@@ -111,7 +111,7 @@ fun LedgerPanel(c: DriveColors, tab: String, now: Long, onTab: (String) -> Unit,
             }
             Spacer(Modifier.weight(1f))
             Box(
-                Modifier.height(56.dp).border(1.dp, c.lineStrong).clickable(onClick = onClose).padding(horizontal = 14.dp),
+                Modifier.height(56.dp).cardLine(1.dp, c.lineStrong).clickable(onClick = onClose).padding(horizontal = 14.dp),
                 contentAlignment = Alignment.Center,
             ) { BasicText("DONE", style = Filament.label(14.sp, c.text, 0.06f, 500)) }
         }
@@ -264,7 +264,7 @@ private fun ChargeGraph(samples: List<Pair<Long, Float>>, c: DriveColors) {
     val peak = max(10f, samples.maxOf { it.second })
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Caption("CHARGING POWER · PEAK %.0f kW".format(peak), c)
-        Canvas(Modifier.fillMaxWidth().height(140.dp).border(1.dp, c.border)) {
+        Canvas(Modifier.fillMaxWidth().height(140.dp).cardLine(1.dp, c.border)) {
             val t0 = samples.first().first
             val span = max(60_000L, samples.last().first - t0).toFloat()
             val p = Path()
@@ -290,7 +290,7 @@ private fun TiresTab(c: DriveColors, r: Map<String, Reading>, now: Long) {
         val st = tireStatus(p, set)
         val col = when (st) { 2 -> c.danger; 1 -> c.warn; else -> c.text }
         Column(
-            modifier.border(1.dp, if (st > 0) col else c.border).padding(14.dp),
+            modifier.cardLine(1.dp, if (st > 0) col else c.border).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Caption(when (corner) { "FL" -> "FRONT LEFT"; "FR" -> "FRONT RIGHT"; "RL" -> "REAR LEFT"; else -> "REAR RIGHT" }, c)
@@ -307,7 +307,7 @@ private fun TiresTab(c: DriveColors, r: Map<String, Reading>, now: Long) {
     }
     // The car between the axles.
     Box(Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(140.dp, 70.dp).border(1.dp, c.border), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(140.dp, 70.dp).cardLine(1.dp, c.border), contentAlignment = Alignment.Center) {
             Caption("FRONT ↑", c)
         }
     }

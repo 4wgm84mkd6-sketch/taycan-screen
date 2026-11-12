@@ -59,7 +59,8 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
 ## UI rules
 - Design: v3 "Center screen" boards in the Taycan Center Screen Concept artifact
   (`https://claude.ai/artifact/PhA2Jt5qDhHqoA658Q2WDw`: Drive — night / day, Audio), owner-chosen
-  2026-11-09; Inter Tight + IBM Plex Mono, mint accent, square panels. The Filament start-up sequence stays.
+  2026-11-09; Inter Tight + IBM Plex Mono, mint accent. Corners: rounded, one radius for every card and
+  button (`ui/Cards.kt`; owner, 2026-11-12, replacing the boards' square panels). The Filament start-up sequence stays.
   The Drive screen is drawn in design px (DriveScreen sets density so 1602×720 fits the window).
 - Owner requests that override the boards: full-height left panel, a large now-playing player, battery
   colours green → yellow → red, map size L/M/S and satellite.
