@@ -239,8 +239,11 @@ private fun Button(label: String, c: DriveColors, accent: Boolean = false, onCli
 @Composable
 private fun Switch(on: Boolean, c: DriveColors, onToggle: () -> Unit) {
     Box(
-        Modifier.size(88.dp, 48.dp).background(if (on) c.accent else c.track).clickable(onClick = onToggle),
+        Modifier.size(88.dp, 48.dp).cardFill(if (on) c.accent else c.track).clickable(onClick = onToggle),
     ) {
-        Box(Modifier.offset(x = if (on) 46.dp else 6.dp, y = 6.dp).size(36.dp).background(if (on) c.onAccent else c.textDim))
+        Box(
+            Modifier.offset(x = if (on) 46.dp else 6.dp, y = 6.dp).size(36.dp)
+                .background(if (on) c.onAccent else c.textDim, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+        )
     }
 }
