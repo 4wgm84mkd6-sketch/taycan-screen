@@ -66,7 +66,8 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   colours green → yellow → red, map size L/M/S and satellite.
 - Second Drive layout, "Quiet" (owner, 2026-11-12, "Ship it" on the Taycan Quiet Dash board,
   `https://claude.ai/artifact/SVH3p9ATFpxHqa3dTptzFN`): map full screen; speed, next turn and arrival in
-  the corners; map controls, search and the dock show while standing or for 8 s after a touch. Chosen
+  the corners; map controls, search and the dock show while standing or for 8 s after a touch. Quiet
+  stays Quiet in every module: search, music, sound and energy float over the map as cards. Chosen
   in Setup; **Classic stays the default** (it keeps the full-height left panel and large player) until
   the owner says otherwise. Keep both working.
 - Start-up (StartupLockOn board): locks wait for real events; hand-off by 3.0 s so Drive takes touches
