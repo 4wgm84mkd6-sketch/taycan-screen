@@ -343,8 +343,8 @@ fun MapArea(
             }
         }
 
-        // GPS status only while there's no fix (v3 keeps the map clean).
-        if (gps.fix == null) GpsChip(gps, locationGranted, c, Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 40.dp))
+        // While there's no fix the reticle on the map says so ("SEARCHING · GPS · n/n SAT"); the separate
+        // chip that repeated it in the corner is gone.
         // "Search for destination" box, top left (owner, 2026-11-09, like Porsche's); the turn card takes
         // its place during a route.
         val activeRoute by com.taycanscreen.app.nav.Nav.active.collectAsState()
@@ -441,7 +441,10 @@ private fun VectorMap(
     onUserMove: () -> Unit,
 ) {
     if (UiEvents.preview) {
-        Box(Modifier.fillMaxSize().background(if (c.isNight) Color(0xFF15181A) else Color(0xFFE9E7E2)))
+        Box(
+            Modifier.fillMaxSize().background(if (c.isNight) Color(0xFF15181A) else Color(0xFFE9E7E2))
+                .onGloballyPositioned { targets.markerInMap = Offset(it.size.width / 2f, it.size.height * 0.72f) },
+        )
         return
     }
     val context = LocalContext.current
@@ -627,11 +630,11 @@ private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: Gps
         context.getSharedPreferences("ui", Context.MODE_PRIVATE).edit().putString("directions", next.name).apply()
         AppLog.info("map", "Directions: ${next.name}")
     }
-    // In the margin above the search row (it ran into the Work button, seen in the car on build 171).
-    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(start = 20.dp, end = 20.dp, top = 5.dp, bottom = 12.dp),
-        style = Filament.label(11.sp, c.textFaint, 0.18f))
-    BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 20.dp, vertical = 10.dp),
-        style = Filament.label(11.sp, c.textDim, 0.18f))
+    // The top label sits in the margin above the search row / turn card (it ran into the Work button).
+    BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(start = 28.dp, end = 28.dp, top = 4.dp, bottom = 14.dp),
+        style = Filament.label(14.sp, c.textDim, 0.16f))
+    BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 28.dp, vertical = 14.dp),
+        style = Filament.label(14.sp, c.textDim, 0.16f))
 }
 
 @Composable
@@ -647,28 +650,6 @@ private fun NorthButton(northUp: Boolean, gps: GpsInfo, c: DriveColors, onToggle
             tint = c.accent, modifier = Modifier.size(32.dp).rotate(if (northUp) 0f else gps.mapOrientation),
         )
         BasicText(if (northUp) "N UP" else "HDG", Modifier.padding(top = 2.dp), style = Filament.label(12.sp, c.textDim, 0.08f))
-    }
-}
-
-@Composable
-private fun GpsChip(gps: GpsInfo, locationGranted: Boolean, c: DriveColors, modifier: Modifier) {
-    val fix = gps.fix
-    Row(
-        modifier.height(40.dp).background(c.overlay, Filament.CutS).insetLine(c.border).padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(FIcons.Gps, null, tint = if (fix != null) c.accent else c.textFaint, modifier = Modifier.size(18.dp))
-        BasicText(
-            when {
-                !locationGranted -> "GPS · NO PERMISSION"
-                fix == null -> "GPS SEARCHING"
-                else -> "GPS ±${fix.accuracy.roundToInt()} m"
-            },
-            style = Filament.label(14.sp, c.textDim, 0f),
-        )
-        Box(Modifier.width(1.dp).height(16.dp).background(c.border))
-        BasicText("${gps.usedSats}/${gps.seenSats} SAT", style = Filament.label(14.sp, c.textDim, 0f))
     }
 }
 

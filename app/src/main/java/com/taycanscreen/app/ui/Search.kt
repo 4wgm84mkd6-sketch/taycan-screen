@@ -116,7 +116,7 @@ fun SearchPanel(
 
     Column(modifier.background(c.panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SearchField(query, c, Modifier.weight(1f).fillMaxHeight()) { query = ""; shift = true }
+            QueryField(query, "Where to?", c, Modifier.weight(1f).fillMaxHeight()) { query = ""; shift = true }
             Box(
                 Modifier.size(72.dp, 64.dp).background(c.raised, Filament.CutS).insetLine(c.border).clickable(onClick = onClose),
                 contentAlignment = Alignment.Center,
@@ -141,23 +141,26 @@ fun SearchPanel(
             val showRecents = query.trim().length < 3
             val list = if (showRecents) recents else results
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                item {
-                    BasicText(
-                        when {
-                            showRecents -> if (recents.isEmpty()) "TYPE A PLACE OR ADDRESS" else "RECENT"
-                            searching -> "SEARCHING…"
-                            results.isEmpty() -> "NO MATCHES"
-                            else -> "RESULTS"
-                        },
-                        Modifier.padding(start = 4.dp, bottom = 2.dp),
-                        style = Filament.label(13.sp, c.textFaint, 0.18f),
-                    )
-                }
-                // Home and Work for one tap (owner, 2026-11-10). EDIT picks a new place.
+                // Home and Work for one tap (owner, 2026-11-10), side by side so recent places still fit
+                // above the keyboard. EDIT picks a new place.
                 if (showRecents && saveAs == null) {
-                    items(listOf("home", "work"), key = { "saved-$it" }) { kind ->
-                        SavedRow(kind, saved[kind], near, c, onGo = { saved[kind]?.let { pick(it) } ?: run { saveAs = kind } }, onEdit = { saveAs = kind })
+                    item(key = "saved") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for (kind in listOf("home", "work")) {
+                                SavedRow(kind, saved[kind], near, c, Modifier.weight(1f), onGo = { saved[kind]?.let { pick(it) } ?: run { saveAs = kind } }, onEdit = { saveAs = kind })
+                            }
+                        }
                     }
+                }
+                // A caption only when it says something the rows don't.
+                val caption = when {
+                    showRecents -> if (recents.isEmpty()) null else "RECENT"
+                    searching -> "SEARCHING…"
+                    results.isEmpty() -> "NO MATCHES"
+                    else -> null
+                }
+                if (caption != null) item(key = "caption") {
+                    BasicText(caption, Modifier.padding(start = 4.dp, top = 2.dp), style = Filament.label(13.sp, c.textDim, 0.14f))
                 }
                 items(list, key = { "${it.name}|${it.lat}|${it.lon}" }) { p ->
                     PlaceRow(p, if (showRecents) FIcons.Recent else FIcons.Pin, near, c) { pick(p) }
@@ -185,8 +188,9 @@ fun SearchPanel(
     }
 }
 
+/** The typed text with a blinking caret and a clear button (destination search and Spotify search). */
 @Composable
-private fun SearchField(query: String, c: DriveColors, modifier: Modifier, onClear: () -> Unit) {
+internal fun QueryField(query: String, placeholder: String, c: DriveColors, modifier: Modifier, onClear: () -> Unit) {
     val caret by rememberInfiniteTransition(label = "caret").animateFloat(
         0f, 1f, infiniteRepeatable(tween(530, easing = LinearEasing), RepeatMode.Reverse), label = "blink",
     )
@@ -199,7 +203,7 @@ private fun SearchField(query: String, c: DriveColors, modifier: Modifier, onCle
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             if (query.isEmpty()) {
                 Box(Modifier.width(3.dp).height(32.dp).alpha(if (caret > 0.5f) 1f else 0f).background(c.accent))
-                BasicText("  Where to?", style = Filament.text(26.sp, 400, c.textFaint))
+                BasicText("  $placeholder", style = Filament.text(26.sp, 400, c.textFaint))
             } else {
                 BasicText(query, Modifier.weight(1f, fill = false), style = Filament.text(26.sp, 500, c.text), maxLines = 1, overflow = TextOverflow.Clip)
                 Box(Modifier.width(3.dp).height(32.dp).alpha(if (caret > 0.5f) 1f else 0f).background(c.accent))
@@ -214,10 +218,10 @@ private fun SearchField(query: String, c: DriveColors, modifier: Modifier, onCle
 }
 
 @Composable
-private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors, onGo: () -> Unit, onEdit: () -> Unit) {
+private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors, modifier: Modifier, onGo: () -> Unit, onEdit: () -> Unit) {
     val title = kind.replaceFirstChar { it.uppercase() }
     Row(
-        Modifier.fillMaxWidth().height(72.dp).background(c.raised, Filament.CutS).clickable(onClick = onGo).padding(start = 16.dp),
+        modifier.height(68.dp).background(c.raised, Filament.CutS).clickable(onClick = onGo).padding(start = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -245,7 +249,7 @@ private fun SavedRow(kind: String, place: Place?, near: LatLon?, c: DriveColors,
 @Composable
 private fun PlaceRow(p: Place, icon: ImageVector, near: LatLon?, c: DriveColors, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(72.dp).background(c.raised, Filament.CutS).clickable(onClick = onClick).padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().height(68.dp).background(c.raised, Filament.CutS).clickable(onClick = onClick).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -262,7 +266,7 @@ private fun PlaceRow(p: Place, icon: ImageVector, near: LatLon?, c: DriveColors,
 
 /** Large on-screen keyboard (letters / numbers), Apple-like: light letter keys, darker function keys. */
 @Composable
-private fun Keyboard(
+internal fun Keyboard(
     c: DriveColors,
     shift: Boolean,
     numbers: Boolean,
@@ -272,6 +276,7 @@ private fun Keyboard(
     onShift: () -> Unit,
     onLayer: () -> Unit,
     onGo: () -> Unit,
+    goLabel: String = "Go",
 ) {
     val rows = if (numbers) listOf("1234567890", "-/:;()&@'", ".,#!?") else listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -301,7 +306,7 @@ private fun Keyboard(
                 BasicText("space", style = Filament.text(20.sp, 400, c.textDim))
             }
             FnKey(Modifier.weight(2.5f), c, accent = true, onClick = onGo) {
-                BasicText("Go", style = Filament.text(24.sp, 600, c.onAccent))
+                BasicText(goLabel, style = Filament.text(24.sp, 600, c.onAccent))
             }
         }
     }
@@ -309,7 +314,7 @@ private fun Keyboard(
 
 @Composable
 private fun KeyRow(content: @Composable RowScope.() -> Unit) {
-    Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
 }
 
 @Composable

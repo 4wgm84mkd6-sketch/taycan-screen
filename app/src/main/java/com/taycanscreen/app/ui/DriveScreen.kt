@@ -109,7 +109,6 @@ private data class VehicleValues(
     val gear: String?,
     val mode: String?,
     val lowVolts: V?,
-    val lowVoltage: LowVoltageValues,
 ) {
     companion object {
         fun from(r: Map<String, Reading>, low: Reading?, now: Long): VehicleValues {
@@ -130,14 +129,6 @@ private data class VehicleValues(
                 gear = r.v(Taycan.GEAR, now)?.let { Taycan.gearLetter(it.x) },
                 mode = r.v(Taycan.DRIVE_MODE, now)?.let { Taycan.driveMode(it.x) },
                 lowVolts = adapterVolts,
-                lowVoltage = LowVoltageValues(
-                    soc = r.v(Taycan.LV_SOC, now),
-                    volts = r.v(Taycan.LV_VOLTAGE, now),
-                    adapterVolts = adapterVolts,
-                    chargeAh = r.v(Taycan.LV_CHARGE, now),
-                    capacityAh = r.v(Taycan.LV_CAPACITY, now),
-                    resistanceMilliOhm = r.v(Taycan.LV_RESISTANCE, now),
-                ),
             )
         }
     }
@@ -377,21 +368,18 @@ private fun DriveContent(
                     ) {
                         LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = Modifier)
                     }
+                    // Music and Sound are drawn in design px like everything else on this screen.
                     Appear(panel == "music") {
-                        CompositionLocalProvider(LocalDensity provides realDensity) {
-                            MusicPanel(
-                                c,
-                                onClose = { panel = null },
-                                onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
-                                modifier = Modifier.fillMaxSize(),
-                                onViewChange = { musicView = it },
-                            )
-                        }
+                        MusicPanel(
+                            c,
+                            onClose = { panel = null },
+                            onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
+                            modifier = Modifier.fillMaxSize(),
+                            onViewChange = { musicView = it },
+                        )
                     }
                     Appear(panel == "audio") {
-                        CompositionLocalProvider(LocalDensity provides realDensity) {
-                            AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
-                        }
+                        AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
                     }
                 }
                 V3Dock(
@@ -461,7 +449,7 @@ private fun V3Panel(
             ) {
                 BatteryIcon(soc?.x, col, c, Modifier.size(48.dp, 26.dp))
                 BasicText(
-                    soc?.x?.roundToInt()?.let { "$it%" } ?: NO_DATA,
+                    soc?.x?.roundToInt()?.let { "$it%" } ?: "–",
                     Modifier.padding(start = 8.dp).alpha(if (soc?.dim == true) 0.45f else 1f),
                     style = Filament.num(18.sp, 500, if (soc == null) c.textFaint else col),
                 )
@@ -484,11 +472,15 @@ private fun V3Panel(
             )
         }
         if (tireWarn > 0) {
-            BasicText(
-                "TIRE PRESSURE LOW ›",
-                Modifier.padding(top = 8.dp).clickable { onLedger("TIRES") },
-                style = Filament.label(13.sp, if (tireWarn > 1) c.danger else c.warn, 0.06f, 500),
-            )
+            // A real button (it was a line of small text): the whole bar opens the Tires page.
+            val col = if (tireWarn > 1) c.danger else c.warn
+            Row(
+                Modifier.padding(top = 8.dp).fillMaxWidth().height(56.dp).border(1.5.dp, col).clickable { onLedger("TIRES") }.padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicText("TIRE PRESSURE LOW", Modifier.weight(1f), style = Filament.label(15.sp, col, 0.06f, 500))
+                BasicText("›", style = Filament.text(24.sp, 500, col))
+            }
         }
 
         if (charging) {
@@ -507,18 +499,21 @@ private fun V3Panel(
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (limit != null) {
                         val over = (v.speedMph?.x ?: 0.0) > limit.mph + 5
+                        // The one small thing a driver checks at speed: sized like a road sign, not a caption.
                         Column(
-                            Modifier.border(1.5.dp, if (over) c.warn else c.textDim).padding(horizontal = 8.dp, vertical = 4.dp),
+                            Modifier.width(84.dp).border(2.dp, if (over) c.warn else c.textDim).padding(top = 6.dp, bottom = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            BasicText("LIMIT", style = Filament.label(9.sp, if (over) c.warn else c.textFaint, 0.12f))
-                            BasicText("${limit.mph}", style = Filament.num(24.sp, 500, if (over) c.warn else c.text))
+                            BasicText("LIMIT", style = Filament.label(11.sp, if (over) c.warn else c.textDim, 0.1f, 500))
+                            BasicText("${limit.mph}", style = Filament.num(38.sp, 500, if (over) c.warn else c.text))
                         }
                     }
-                    BasicText(v.gear ?: NO_DATA, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
+                    if (v.gear != null) BasicText(v.gear, Modifier.capBox(58.dp, pad = 2.dp), style = Filament.num(46.sp, 400, c.text))
+                    else Box(Modifier.size(34.dp, 38.dp), contentAlignment = Alignment.Center) { Missing(c, 24.dp) }
                     // Drive mode under the gear letter (Sport Plus reads as SPORT: the car reports both alike).
-                    BasicText(v.mode ?: NO_DATA, style = Filament.label(13.sp, if (v.mode != null) c.text else c.textFaint, 0.1f))
-                    BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(13.sp, c.textFaint, 0.1f))
+                    if (v.mode != null) BasicText(v.mode, style = Filament.label(15.sp, c.text, 0.1f))
+                    else Box(Modifier.size(34.dp, 18.dp), contentAlignment = Alignment.Center) { Missing(c, 16.dp) }
+                    BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(15.sp, c.textDim, 0.1f))
                 }
             }
             Spacer(Modifier.height(18.dp))
@@ -610,13 +605,18 @@ private fun SpeedNumber(speed: V?, c: DriveColors, modifier: Modifier) {
         had = true
     }
     val text by remember { derivedStateOf { shown.value.roundToInt().toString() } }
-    BasicText(
-        // No speed yet: a short faint dash (an em dash at this size is a heavy bar).
-        if (speed == null) "–" else text,
-        modifier,
-        style = Filament.num(168.sp, 300, if (speed == null) c.textFaint else c.text).copy(letterSpacing = (-8).sp),
-        maxLines = 1,
-    )
+    if (speed == null) {
+        // No speed yet: one thin quiet line, the same mark every missing value uses.
+        Box(modifier.height(124.dp), contentAlignment = Alignment.CenterStart) { Missing(c, 56.dp) }
+        return
+    }
+    BasicText(text, modifier, style = Filament.num(168.sp, 300, c.text).copy(letterSpacing = (-8).sp), maxLines = 1)
+}
+
+/** The mark for a value the car hasn't given yet: a thin, quiet line (never a heavy dash, never an old number). */
+@Composable
+private fun Missing(c: DriveColors, width: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.size(width, 3.dp).background(c.lineStrong))
 }
 
 /** One short line under the power bar about the car link; amber only when something needs attention. */
@@ -677,19 +677,19 @@ private fun PowerLine(kw: V?, c: DriveColors, sweepT: Float?, pulseT: Float?, no
             }
         }
         Row(Modifier.fillMaxWidth()) {
-            BasicText("REGEN", style = Filament.label(12.sp, c.textFaint, 0.08f))
+            BasicText("REGEN", style = Filament.label(15.sp, c.textFaint, 0.08f))
             Spacer(Modifier.weight(1f))
             BasicText(
                 when {
-                    drive == null -> "$NO_DATA kW"
+                    drive == null -> "– kW"
                     drive >= 0 -> "${drive.roundToInt()} kW"
                     else -> "−${(-drive).roundToInt()} kW"
                 },
-                style = Filament.label(12.sp, if ((drive ?: 0.0) < -0.5) c.accent else c.text, 0.08f),
+                style = Filament.label(15.sp, if (drive == null) c.textFaint else if (drive < -0.5) c.accent else c.text, 0.08f),
             )
         }
         if (note != null) {
-            BasicText(note.text, style = Filament.label(12.sp, if (note.warn) c.warn else c.textDim, 0.04f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BasicText(note.text, style = Filament.label(14.sp, if (note.warn) c.warn else c.textDim, 0.02f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -735,7 +735,8 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
                     ),
                 )
             } else {
-                Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.align(Alignment.Center).padding(bottom = 50.dp).size(44.dp))
+                // Top of the box, so it never sits on the title when the box is short (e.g. with a tire warning).
+                Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp).size(40.dp))
             }
             val onArt = connected && bmp != null
             Column(
@@ -763,19 +764,15 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
     }
 }
 
+/** Round player control: thin ring, accent ring and icon for the main one. Shared with the Music panel. */
 @Composable
-private fun RoundButton(icon: ImageVector, label: String, c: DriveColors, size: Int, primary: Boolean, onClick: () -> Unit) {
+internal fun RoundButton(icon: ImageVector, label: String, c: DriveColors, size: Int, primary: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(size.dp).clip(CircleShape).border(1.dp, if (primary) c.accentLine else c.border, CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = label, tint = if (primary) c.accent else c.text, modifier = Modifier.size((size * 0.36f).dp))
     }
-}
-
-private fun mmss(ms: Long): String {
-    val s = (ms / 1000).coerceAtLeast(0)
-    return "%d:%02d".format(s / 60, s % 60)
 }
 
 /** v3 dock under the map: trip distance, app icons with an active dot, volume. */

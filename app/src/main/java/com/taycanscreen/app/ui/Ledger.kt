@@ -94,24 +94,26 @@ fun LedgerPanel(c: DriveColors, tab: String, now: Long, onTab: (String) -> Unit,
         }
     }
     Column(
-        modifier.width(560.dp).fillMaxHeight().background(c.raised)
+        // Wide enough to cover the search row behind it (the Work button used to peek out).
+        modifier.width(628.dp).fillMaxHeight().background(c.raised)
             .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
-            .padding(start = 30.dp, end = 18.dp, top = 18.dp, bottom = 20.dp),
+            .padding(start = 28.dp, end = 18.dp, top = 14.dp, bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
             for (t in LEDGER_TABS) {
                 val on = t == tab
                 Box(
-                    Modifier.height(56.dp).clickable { onTab(t) }.padding(end = 18.dp)
-                        .drawBehind { if (on) drawRect(c.accent, Offset(0f, size.height - 2 * density), androidx.compose.ui.geometry.Size(size.width - 18 * density, 2 * density)) },
+                    Modifier.height(64.dp).clickable { onTab(t) }.padding(horizontal = 10.dp)
+                        .drawBehind { if (on) drawRect(c.accent, Offset(0f, size.height - 3 * density), androidx.compose.ui.geometry.Size(size.width, 3 * density)) },
                     contentAlignment = Alignment.Center,
-                ) { BasicText(t, style = Filament.label(12.sp, if (on) c.text else c.textFaint, 0.14f, if (on) 500 else 400)) }
+                ) { BasicText(t, style = Filament.label(14.sp, if (on) c.text else c.textDim, 0.04f, 500)) }
             }
             Spacer(Modifier.weight(1f))
-            Box(Modifier.height(56.dp).clickable(onClick = onClose).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                BasicText("DONE", style = Filament.label(12.sp, c.text, 0.12f, 500))
-            }
+            Box(
+                Modifier.height(56.dp).border(1.dp, c.lineStrong).clickable(onClick = onClose).padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) { BasicText("DONE", style = Filament.label(14.sp, c.text, 0.06f, 500)) }
         }
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             when (tab) {
@@ -127,7 +129,7 @@ fun LedgerPanel(c: DriveColors, tab: String, now: Long, onTab: (String) -> Unit,
 
 @Composable
 private fun Caption(text: String, c: DriveColors, modifier: Modifier = Modifier) =
-    BasicText(text, modifier, style = Filament.label(11.sp, c.textFaint, 0.12f))
+    BasicText(text, modifier, style = Filament.label(13.sp, c.textDim, 0.08f))
 
 @Composable
 private fun LineRow(label: String, value: String, c: DriveColors, valueColor: Color = c.text, bold: Boolean = false) {
@@ -295,7 +297,7 @@ private fun TiresTab(c: DriveColors, r: Map<String, Reading>, now: Long) {
             BasicText(p?.let { "%.0f psi".format(barToPsi(it)) } ?: NO_DATA, style = Filament.num(30.sp, 400, col))
             BasicText(
                 "target ${set?.let { "%.0f".format(barToPsi(it)) } ?: NO_DATA} · ${t?.let { "%.0f°F".format(cToF(it)) } ?: NO_DATA}",
-                style = Filament.label(12.sp, c.textDim, 0.04f),
+                style = Filament.label(14.sp, c.textDim, 0.02f),
             )
         }
     }
