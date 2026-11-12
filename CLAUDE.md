@@ -63,6 +63,11 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   The Drive screen is drawn in design px (DriveScreen sets density so 1602×720 fits the window).
 - Owner requests that override the boards: full-height left panel, a large now-playing player, battery
   colours green → yellow → red, map size L/M/S and satellite.
+- Second Drive layout, "Quiet" (owner, 2026-11-12, "Ship it" on the Taycan Quiet Dash board,
+  `https://claude.ai/artifact/SVH3p9ATFpxHqa3dTptzFN`): map full screen; speed, next turn and arrival in
+  the corners; map controls, search and the dock show while standing or for 8 s after a touch. Chosen
+  in Setup; **Classic stays the default** (it keeps the full-height left panel and large player) until
+  the owner says otherwise. Keep both working.
 - Start-up (StartupLockOn board): locks wait for real events; hand-off by 3.0 s so Drive takes touches
   within 4 s of the first frame, always. Gauge sweep only on the first shift into D per app start.
 - No phone features: no driver detection, no iPhone pairing, no calls (owner, 2026-11-09).
