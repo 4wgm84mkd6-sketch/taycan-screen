@@ -453,7 +453,7 @@ private fun DiscoveryPanel(obd: ObdViewModel) {
     LaunchedEffect(Unit) { obd.refreshDiscovery() }
     val live = link.state == LinkState.Live
     Panel {
-        Text("Blinker & gear discovery", color = Palette.TextDim, fontSize = 16.sp)
+        Text("Car signal tests", color = Palette.TextDim, fontSize = 16.sp)
         StatusText("Read-only test: parked, car switched on. It only asks the car for values and changes nothing.")
         if (!live && state !is Discovery.State.Scanning && state !is Discovery.State.Recording) {
             StatusText("Waiting for the car connection (switch the car on)…", Palette.Warn)
@@ -471,7 +471,7 @@ private fun DiscoveryPanel(obd: ObdViewModel) {
                 BigButton("Stop scan") { obd.cancelDiscovery() }
             }
             is Discovery.State.Recording -> {
-                StatusText("Recording \"${s.step}\" (round ${s.round} of ${Discovery.ROUNDS_PER_STEP}). Hold this state until it finishes.", Palette.Warn)
+                StatusText("Recording \"${s.step}\" (round ${s.round} of ${Discovery.roundsFor(s.step)}). Hold this state until it finishes.", Palette.Warn)
                 LinearProgressIndicator(
                     progress = { if (s.total > 0) s.done.toFloat() / s.total else 0f },
                     modifier = Modifier.fillMaxWidth().height(8.dp),
@@ -485,14 +485,28 @@ private fun DiscoveryPanel(obd: ObdViewModel) {
                     BigButton("1. Continue scan", enabled = live) { obd.requestDiscovery(Discovery.Request.Scan) }
                     return@Panel
                 }
-                StatusText("Scan found ${s.found} values. Now set up each state, tap its button, and hold it until recording finishes:", Palette.Accent)
+                // Drive-mode test (owner-approved 2026-11-12): does the car say which mode it is in?
+                // First on the page because it is the test that's wanted now.
+                Text("Drive mode test", color = Palette.Accent, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                StatusText(
+                    "Parked, car switched on, in P. For each button, in order: choose that mode on the car, wait 5 seconds, " +
+                        "tap the button, and leave the car alone until it finishes (about a minute and a half).",
+                )
+                Discovery.MODE_STEPS.forEachIndexed { i, step ->
+                    val done = step in s.recorded
+                    BigButton("${i + 1} of ${Discovery.MODE_STEPS.size}. ${step.removePrefix("Drive mode: ")}" + if (done) "  ✓" else "", enabled = live) {
+                        obd.requestDiscovery(Discovery.Request.Record(step))
+                    }
+                }
+                StatusText("When all five are ticked, tap Send log to Claude.")
+                Text("Blinker and gear test", color = Palette.TextDim, fontSize = 16.sp)
+                StatusText("The scan knows ${s.found} values. Set up each state, tap its button, and hold it until recording finishes:")
                 Discovery.STEPS.forEachIndexed { i, step ->
                     val done = step in s.recorded
                     BigButton("${i + 2}. $step" + if (done) "  ✓" else "", enabled = live) {
                         obd.requestDiscovery(Discovery.Request.Record(step))
                     }
                 }
-                StatusText("When all are ticked, tap Send log to Claude.")
                 BigButton("Scan again from scratch", enabled = live) { obd.requestDiscovery(Discovery.Request.RestartScan) }
             }
         }
