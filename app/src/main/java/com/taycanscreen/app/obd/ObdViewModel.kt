@@ -445,10 +445,11 @@ object ObdEngine {
             }
             is Discovery.Request.Record -> {
                 val found = Discovery.loadFound(app)
-                val total = found.values.sumOf { it.size } * Discovery.ROUNDS_PER_STEP
+                val rounds = Discovery.roundsFor(req.step)
+                val total = found.values.sumOf { it.size } * rounds
                 var done = 0
                 AppLog.info("disc", "Recording state '${req.step}'")
-                for (round in 1..Discovery.ROUNDS_PER_STEP) {
+                for (round in 1..rounds) {
                     for (m in Discovery.MODULES) {
                         val dids = found[m.hdr].orEmpty()
                         if (dids.isEmpty()) continue
