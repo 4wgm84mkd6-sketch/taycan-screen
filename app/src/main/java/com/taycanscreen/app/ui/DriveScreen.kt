@@ -345,7 +345,7 @@ private fun DriveContent(
         val leftPanelShape = Modifier.width(420.dp).fillMaxHeight().background(c.panel)
             .drawBehind { drawLine(c.border, Offset(size.width - density / 2, 0f), Offset(size.width - density / 2, size.height), density) }
         // The map keeps running underneath the panels, so it's current when you close them.
-        val mapArea: @Composable (Modifier, Boolean, Boolean) -> Unit = { m, quiet, chrome ->
+        val mapArea: @Composable (Modifier, Boolean, Boolean, androidx.compose.ui.unit.Dp) -> Unit = { m, quiet, chrome, sideWidth ->
             MapArea(
                 c, v.outsideF, locationGranted, gps, targets, m,
                 onSearch = { saveAs = null; panel = "search" },
@@ -358,15 +358,16 @@ private fun DriveContent(
                         panel = "search"
                     }
                 },
-                quiet = quiet, chrome = chrome,
+                quiet = quiet, chrome = chrome, sideWidth = sideWidth,
             )
         }
-        val panels: @Composable () -> Unit = {
+        // [wrap] shapes each module: nothing in Classic, a floating rounded card in Quiet.
+        val panels: @Composable (Modifier) -> Unit = { wrap ->
             // Panels ease in and out over the map instead of cutting.
             Appear(panel == "search") {
                 SearchPanel(
                     c, gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) },
-                    onClose = { panel = null; saveAs = null }, modifier = Modifier.fillMaxSize(),
+                    onClose = { panel = null; saveAs = null }, modifier = Modifier.fillMaxSize().then(wrap),
                     initialSaveAs = saveAs,
                 )
             }
@@ -375,7 +376,7 @@ private fun DriveContent(
                 enter = fadeIn(tween(160)) + slideInHorizontally(tween(220)) { -it / 6 },
                 exit = fadeOut(tween(120)) + slideOutHorizontally(tween(160)) { -it / 6 },
             ) {
-                LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = Modifier)
+                LedgerPanel(c, ledgerTab, now, onTab = { ledgerTab = it }, onClose = { panel = null }, modifier = wrap)
             }
             // Music and Sound are drawn in design px like everything else on this screen.
             Appear(panel == "music") {
@@ -383,12 +384,12 @@ private fun DriveContent(
                     c,
                     onClose = { panel = null },
                     onOpenSpotifyApp = { launchFirst(context, "Spotify", "com.spotify.music") },
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(wrap),
                     onViewChange = { musicView = it },
                 )
             }
             Appear(panel == "audio") {
-                AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize())
+                AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize().then(wrap))
             }
         }
         val onNavigate = { saveAs = null; panel = if (panel == "search") null else "search" }
@@ -410,8 +411,8 @@ private fun DriveContent(
                 leftPanel(leftPanelShape.onGloballyPositioned { targets.panel = it.boundsInRoot() })
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     Box(Modifier.fillMaxWidth().weight(1f)) {
-                        mapArea(Modifier.fillMaxSize(), false, true)
-                        panels()
+                        mapArea(Modifier.fillMaxSize(), false, true, 460.dp)
+                        panels(Modifier)
                     }
                     dock(Modifier.fillMaxWidth().height(128.dp).onGloballyPositioned { targets.dock = it.boundsInRoot() })
                 }
@@ -435,25 +436,20 @@ private fun DriveContent(
                     }
                 },
             ) {
-                mapArea(Modifier.fillMaxSize(), true, chrome && panel == null)
-                Appear(panel == null, Modifier.fillMaxSize(), Motion.FadeIn, Motion.FadeOut) {
-                    QuietOverlays(
-                        v, c, now, status, carOk, limit, worstTire(readings, now), readings, chrome, themeMode, targets,
-                        onLedger = { tab -> ledgerTab = tab; panel = "ledger" },
-                        onOpenMusic = { panel = "music" },
-                        onNavigate = onNavigate, onOpenAudio = onDockAudio,
-                        onCycleTheme = onCycleTheme, onOpenSetup = onOpenSetup,
-                    )
-                }
-                // With a panel open the screen is arranged like Classic, so every panel looks and works the same.
-                Appear(panel != null, Modifier.fillMaxSize(), Motion.FadeIn, Motion.FadeOut) {
-                    Row(Modifier.fillMaxSize()) {
-                        leftPanel(leftPanelShape)
-                        Column(Modifier.weight(1f).fillMaxHeight()) {
-                            Box(Modifier.fillMaxWidth().weight(1f)) { panels() }
-                            dock(Modifier.fillMaxWidth().height(128.dp))
-                        }
-                    }
+                // Quiet stays Quiet in every module (owner, 2026-11-12): the map keeps the whole screen and
+                // search, music, sound and the energy pages float over it as cards, to the right of the
+                // speed card and above the dock. The Classic panel never appears here.
+                val open = panel != null
+                mapArea(Modifier.fillMaxSize(), true, chrome && !open, if (open) 396.dp else 460.dp)
+                QuietOverlays(
+                    v, c, now, status, carOk, limit, worstTire(readings, now), readings, chrome, themeMode, panel, targets,
+                    onLedger = { tab -> ledgerTab = tab; panel = "ledger" },
+                    onOpenMusic = { panel = "music" },
+                    onNavigate = onNavigate, onDockMusic = onDockMusic, onDockAudio = onDockAudio, onDockLedger = onDockLedger,
+                    onCycleTheme = onCycleTheme, onOpenSetup = onOpenSetup,
+                )
+                Box(Modifier.fillMaxSize().padding(start = 436.dp, top = 16.dp, end = 16.dp, bottom = 152.dp)) {
+                    panels(Modifier.clip(CardShape).border(1.dp, c.border, CardShape))
                 }
             }
         }
@@ -950,67 +946,90 @@ private fun QuietOverlays(
     readings: Map<String, Reading>,
     chrome: Boolean,
     themeMode: ThemeMode,
+    /** The module floating over the map (search, music, audio, ledger), or null. */
+    panel: String?,
     targets: DriveTargets,
     onLedger: (String) -> Unit,
     onOpenMusic: () -> Unit,
     onNavigate: () -> Unit,
-    onOpenAudio: () -> Unit,
+    onDockMusic: () -> Unit,
+    onDockAudio: () -> Unit,
+    onDockLedger: () -> Unit,
     onCycleTheme: () -> Unit,
     onOpenSetup: () -> Unit,
 ) {
     val sport = v.mode == "SPORT"
+    val open = panel != null
     // The right-hand panels step aside for the map controls while those are up.
     val edge by animateDpAsState(if (chrome) 112.dp else 28.dp, tween(220), label = "edge")
+    val statusShape = Modifier.height(72.dp).card(quietFill(c), c.border).padding(start = 18.dp, end = 16.dp)
     Box(Modifier.fillMaxSize()) {
-        StatusRow(
-            v, c, onLedger,
-            Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 16.dp).height(72.dp)
-                .card(quietFill(c), c.border).padding(start = 18.dp, end = 16.dp),
-            fill = false,
-        )
+        Appear(!open, Modifier.align(Alignment.TopEnd), Motion.FadeIn, Motion.FadeOut) {
+            StatusRow(v, c, onLedger, Modifier.padding(top = 16.dp, end = 16.dp).then(statusShape), fill = false)
+        }
 
-        // Speed: the same number, limit sign, gear and mode as Classic, in the same arrangement.
+        // The left column never moves: the speed card stays put in every module. While a module has the
+        // right side, the clock and a tire warning sit here, above the speed.
         Column(
-            Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 28.dp)
-                .card(quietFill(c), c.border)
-                .onGloballyPositioned { targets.panel = it.boundsInRoot() }
-                .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp),
+            Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(Modifier.width(348.dp), verticalAlignment = Alignment.Bottom) {
-                SpeedNumber(
-                    v.speedMph, c,
-                    Modifier.weight(1f).capBox(168.dp).alpha(if (v.speedMph?.dim == true) 0.45f else 1f)
-                        .onGloballyPositioned { targets.arc = it.boundsInRoot().center },
-                )
-                SpeedSide(v, limit, c, if (sport) sportColor(c) else c.text)
+            if (open && tireWarn > 0) {
+                val col = if (tireWarn > 1) c.danger else c.warn
+                Row(
+                    Modifier.width(396.dp).height(56.dp).cardLine(1.5.dp, col, quietFill(c)).clickable { onLedger("TIRES") }.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BasicText("TIRE PRESSURE LOW", Modifier.weight(1f), style = Filament.label(15.sp, col, 0.06f, 500))
+                    BasicText("›", style = Filament.text(24.sp, 500, col))
+                }
             }
-            linkNote(link, carOk, now)?.let { note ->
-                BasicText(
-                    note.text, Modifier.width(348.dp).padding(top = 10.dp),
-                    // Two lines: "CAR LINK NOT ANSWERING · STILL TRYING" was cut off in one.
-                    style = Filament.label(13.sp, if (note.warn) c.warn else c.textDim, 0.04f), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                )
+            if (open) StatusRow(v, c, onLedger, statusShape, fill = false)
+            // Speed: the same number, limit sign, gear and mode as Classic, in the same arrangement.
+            Column(
+                Modifier.card(quietFill(c), c.border)
+                    .onGloballyPositioned { targets.panel = it.boundsInRoot() }
+                    .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp),
+            ) {
+                Row(Modifier.width(348.dp), verticalAlignment = Alignment.Bottom) {
+                    SpeedNumber(
+                        v.speedMph, c,
+                        Modifier.weight(1f).capBox(168.dp).alpha(if (v.speedMph?.dim == true) 0.45f else 1f)
+                            .onGloballyPositioned { targets.arc = it.boundsInRoot().center },
+                    )
+                    SpeedSide(v, limit, c, if (sport) sportColor(c) else c.text)
+                }
+                linkNote(link, carOk, now)?.let { note ->
+                    BasicText(
+                        note.text, Modifier.width(348.dp).padding(top = 10.dp),
+                        // Two lines: "CAR LINK NOT ANSWERING · STILL TRYING" was cut off in one.
+                        style = Filament.label(13.sp, if (note.warn) c.warn else c.textDim, 0.04f), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
-        QuietArrival(v, c, Modifier.align(Alignment.BottomEnd).padding(end = edge, bottom = 28.dp), onLedger)
+        Appear(!open, Modifier.align(Alignment.BottomEnd), Motion.FadeIn, Motion.FadeOut) {
+            QuietArrival(v, c, Modifier.padding(end = edge, bottom = 28.dp), onLedger)
+        }
 
-        if (tireWarn > 0) {
+        if (!open && tireWarn > 0) {
             QuietTireCard(readings, now, tireWarn, c, Modifier.align(Alignment.CenterEnd).padding(end = edge)) { onLedger("TIRES") }
         }
 
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp), contentAlignment = Alignment.BottomCenter) {
-            Appear(chrome, enter = Motion.FadeIn, exit = Motion.FadeOut) {
+            // The dock is up with the map controls, and always while a module is open (to switch or close it).
+            Appear(chrome || open, enter = Motion.FadeIn, exit = Motion.FadeOut) {
                 Row(
                     Modifier.card(quietFill(c), c.border).padding(horizontal = 10.dp)
                         .onGloballyPositioned { targets.dock = it.boundsInRoot() },
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    DockIcons(c, themeMode, null, onNavigate, onOpenMusic, onOpenAudio, { onLedger("TRIP") }, onCycleTheme, onOpenSetup)
+                    DockIcons(c, themeMode, panel, onNavigate, onDockMusic, onDockAudio, onDockLedger, onCycleTheme, onOpenSetup)
                 }
             }
-            Appear(!chrome && sport, enter = Motion.FadeIn, exit = Motion.FadeOut) { QuietPower(v.kw, c) }
-            Appear(!chrome && !sport, enter = Motion.FadeIn, exit = Motion.FadeOut) { QuietMusic(c, targets, onOpenMusic) }
+            Appear(!chrome && !open && sport, enter = Motion.FadeIn, exit = Motion.FadeOut) { QuietPower(v.kw, c) }
+            Appear(!chrome && !open && !sport, enter = Motion.FadeIn, exit = Motion.FadeOut) { QuietMusic(c, targets, onOpenMusic) }
         }
     }
 }

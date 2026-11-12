@@ -168,6 +168,8 @@ fun MapArea(
     /** Quiet layout: the map fills the screen and its controls only show while [chrome] is true. */
     quiet: Boolean = false,
     chrome: Boolean = true,
+    /** Width of the turn card and route card, top left (narrower in Quiet while a module is open beside them). */
+    sideWidth: androidx.compose.ui.unit.Dp = 460.dp,
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
@@ -406,14 +408,15 @@ fun MapArea(
                     }
                 }
             }
-            Appear(activeRoute != null, enter = Motion.CardIn, exit = Motion.FadeOut) { NextTurnBanner(c, Modifier.width(460.dp)) }
+            Appear(activeRoute != null, enter = Motion.CardIn, exit = Motion.FadeOut) { NextTurnBanner(c, Modifier.width(sideWidth)) }
             // Quiet layout: arrival is in the corner; the card (details, Waze, End) shows with the controls.
-            if (!quiet || chrome || activeRoute == null) RouteCard(c, Modifier.width(460.dp))
+            if (!quiet || chrome || activeRoute == null) RouteCard(c, Modifier.width(sideWidth))
         }
 
         BasicText(
             if (satellite) MapTheme.SATELLITE_ATTRIBUTION else MapTheme.ATTRIBUTION,
-            Modifier.align(if (quiet) Alignment.CenterStart else Alignment.BottomStart).padding(start = if (quiet) 28.dp else 12.dp, bottom = 8.dp)
+            // Quiet: in the margin under the speed card, clear of everything that floats.
+            Modifier.align(Alignment.BottomStart).padding(start = if (quiet) 28.dp else 12.dp, bottom = if (quiet) 5.dp else 8.dp)
                 .background(c.overlay).padding(horizontal = 6.dp, vertical = 2.dp),
             style = Filament.text(10.sp, 400, c.textFaint),
         )

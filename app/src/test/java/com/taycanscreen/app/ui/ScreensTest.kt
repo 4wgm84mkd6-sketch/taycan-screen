@@ -152,10 +152,10 @@ class ScreensTest {
 
     @Test fun route() = withRoute { shoot("10-route") }
 
-    private fun quiet(name: String, night: Boolean = true) {
+    private fun quiet(name: String, night: Boolean = true, panel: String? = null) {
         UiEvents.quiet.value = true
         try {
-            shoot(name, night)
+            shoot(name, night, panel)
         } finally {
             UiEvents.quiet.value = false
         }
@@ -175,6 +175,22 @@ class ScreensTest {
         ObdEngine.preview(driving(speedKmh = 99.8, amps = -290.0, mode = 13.0), live)
         SpeedLimit.preview(65)
         quiet("16-quiet-sport")
+    }
+
+    // Quiet stays Quiet in every module: each one floats over the map as a card.
+    @Test fun quietMusic() = quiet("18-quiet-music", panel = "music")
+
+    @Test fun quietSound() = quiet("19-quiet-sound", panel = "audio")
+
+    @Test fun quietSearch() = withRoute { quiet("20-quiet-search-with-route", panel = "search") }
+
+    @Test fun quietEnergy() {
+        val low = driving() + mapOf(
+            reading(Taycan.TIRE_RL, 2.2),
+            "TAYCAN_TP_SET_RL" to Reading(2.9, "", Mono.ms()),
+        )
+        ObdEngine.preview(low, live)
+        quiet("21-quiet-energy-day", night = false, panel = "ledger")
     }
 
     @Test fun quietTire() {
