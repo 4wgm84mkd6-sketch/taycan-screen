@@ -270,6 +270,8 @@ fun MapArea(
             VectorMap(
                 c, satellite, northUp, mapSize, tracker, gps, targets, marker,
                 followingState = rememberUpdatedState(following),
+                // Classic: 22 % below the centre. Quiet: 10 %, clear of the panels along the bottom.
+                carLow = if (quiet) 0.10f else 0.22f,
                 onUserMove = {
                     following = false
                     lastTouchAt = System.currentTimeMillis()
@@ -281,7 +283,7 @@ fun MapArea(
 
         // v3: what's ahead and behind, in local terms (mauka / makai / Diamond Head / ʻEwa) or compass.
         // Tap to switch between the two.
-        if (!quiet || chrome) DirectionLabels(gps, northUp, c)
+        if (!quiet || chrome) DirectionLabels(gps, northUp, c, bottom = !quiet)
 
         // Quiet layout: the controls fade away while driving and sit below the clock when shown.
         Appear(!quiet || chrome, Modifier.align(Alignment.TopEnd), Motion.FadeIn, Motion.FadeOut) {
@@ -411,7 +413,7 @@ fun MapArea(
 
         BasicText(
             if (satellite) MapTheme.SATELLITE_ATTRIBUTION else MapTheme.ATTRIBUTION,
-            Modifier.align(if (quiet) Alignment.CenterStart else Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp)
+            Modifier.align(if (quiet) Alignment.CenterStart else Alignment.BottomStart).padding(start = if (quiet) 28.dp else 12.dp, bottom = 8.dp)
                 .background(c.overlay).padding(horizontal = 6.dp, vertical = 2.dp),
             style = Filament.text(10.sp, 400, c.textFaint),
         )
@@ -445,12 +447,14 @@ private fun VectorMap(
     targets: DriveTargets,
     marker: CarMarkerState,
     followingState: androidx.compose.runtime.State<Boolean>,
+    /** Heading-up: how far below the centre the car sits, as a share of the height. */
+    carLow: Float,
     onUserMove: () -> Unit,
 ) {
     if (UiEvents.preview) {
         Box(
             Modifier.fillMaxSize().background(if (c.isNight) Color(0xFF15181A) else Color(0xFFE9E7E2))
-                .onGloballyPositioned { targets.markerInMap = Offset(it.size.width / 2f, it.size.height * 0.72f) },
+                .onGloballyPositioned { targets.markerInMap = Offset(it.size.width / 2f, it.size.height * (0.5f + carLow)) },
         )
         return
     }
@@ -526,17 +530,17 @@ private fun VectorMap(
     }
 
     // Until the map is ready, the "searching" reticle sits where the car will be (not in the corner).
-    LaunchedEffect(map, northUp) {
+    LaunchedEffect(map, northUp, carLow) {
         if (map != null) return@LaunchedEffect
         while (true) {
             val w = mapView.width.toFloat()
             val h = mapView.height.toFloat()
-            if (w > 0f) targets.markerInMap = Offset(w / 2f, h / 2f + if (northUp) 0f else h * 0.22f)
+            if (w > 0f) targets.markerInMap = Offset(w / 2f, h / 2f + if (northUp) 0f else h * carLow)
             delay(100)
         }
     }
     // Every frame: follow the predicted car position, and tell the overlays where the car is.
-    LaunchedEffect(map, tracker, northUp) {
+    LaunchedEffect(map, tracker, northUp, carLow) {
         val m = map ?: return@LaunchedEffect
         var lastTarget: LatLng? = null
         var lastBearing = Double.NaN
@@ -555,8 +559,8 @@ private fun VectorMap(
                 val changed = lastTarget == null || abs(target.latitude - lastTarget!!.latitude) > 1e-7 ||
                     abs(target.longitude - lastTarget!!.longitude) > 1e-7 || abs(bearing - lastBearing) > 0.05
                 if (changed) {
-                    // Heading-up: the car sits 22 % below the centre (padding pushes the focus point down).
-                    val top = if (northUp) 0.0 else h * 0.44
+                    // Heading-up: the car sits below the centre (padding pushes the focus point down).
+                    val top = if (northUp) 0.0 else h * 2.0 * carLow
                     m.moveCamera(
                         CameraUpdateFactory.newCameraPosition(
                             CameraPosition.Builder().target(target).bearing(bearing).padding(0.0, top, 0.0, 0.0).build(),
@@ -577,7 +581,7 @@ private fun VectorMap(
                 marker.rotation = ((shown.bearing ?: 0f) - camB.toFloat())
             } else {
                 marker.visible = false
-                targets.markerInMap = Offset(w / 2f, h / 2f + if (northUp) 0f else h * 0.22f)
+                targets.markerInMap = Offset(w / 2f, h / 2f + if (northUp) 0f else h * carLow)
             }
         }
     }
@@ -622,14 +626,14 @@ private fun CarMarker(c: DriveColors, targets: DriveTargets, m: CarMarkerState) 
 
 /** Top and bottom of the map: the direction ahead and behind (v3 board's MAUKA / MAKAI labels). */
 @Composable
-private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: GpsInfo, northUp: Boolean, c: DriveColors) {
+private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: GpsInfo, northUp: Boolean, c: DriveColors, bottom: Boolean = true) {
     val context = LocalContext.current
     val mode by com.taycanscreen.app.nav.LocalDirections.mode.collectAsState()
     val at = gps.fix?.let { com.taycanscreen.app.nav.LatLon(it.latitude, it.longitude) }
     // Direction that is "up" on the map: north in north-up, else the way the map is turned.
     val up = if (northUp) 0.0 else ((-gps.mapOrientation).toDouble() % 360 + 360) % 360
     val top = com.taycanscreen.app.nav.LocalDirections.name(up, at, mode)
-    val bottom = com.taycanscreen.app.nav.LocalDirections.name(up + 180, at, mode)
+    val behind = com.taycanscreen.app.nav.LocalDirections.name(up + 180, at, mode)
     val toggle = Modifier.clickable {
         val next = if (mode == com.taycanscreen.app.nav.LocalDirections.Mode.Local) com.taycanscreen.app.nav.LocalDirections.Mode.Compass
         else com.taycanscreen.app.nav.LocalDirections.Mode.Local
@@ -640,7 +644,8 @@ private fun androidx.compose.foundation.layout.BoxScope.DirectionLabels(gps: Gps
     // The top label sits in the margin above the search row / turn card (it ran into the Work button).
     BasicText(top, Modifier.align(Alignment.TopCenter).then(toggle).padding(start = 28.dp, end = 28.dp, top = 4.dp, bottom = 14.dp),
         style = Filament.label(14.sp, c.textDim, 0.16f))
-    BasicText(bottom, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 28.dp, vertical = 14.dp),
+    // Quiet layout: the dock sits at the bottom centre, so only the top label is drawn.
+    if (bottom) BasicText(behind, Modifier.align(Alignment.BottomCenter).then(toggle).padding(horizontal = 28.dp, vertical = 14.dp),
         style = Filament.label(14.sp, c.textDim, 0.16f))
 }
 
