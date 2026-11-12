@@ -799,9 +799,12 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
             RoundButton(FIcons.Next, "Next track", c, 68, false) { SpotifyController.next() }
         }
         Spacer(Modifier.height(16.dp))
-        Box(
+        BoxWithConstraints(
             Modifier.fillMaxWidth().weight(1f).clip(CardShape).background(c.coverBg).clickable(onClick = onOpenMusic),
         ) {
+            // With a tire warning above, the box gets short: leave the note icon out rather than let it
+            // sit on the title.
+            val roomForIcon = maxHeight > 170.dp
             val bmp = art
             if (connected && bmp != null) {
                 Image(bmp.asImageBitmap(), contentDescription = "Album art", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -813,7 +816,7 @@ private fun V3Player(c: DriveColors, now: Long, onOpenMusic: () -> Unit, modifie
                 )
             } else {
                 // Top of the box, so it never sits on the title when the box is short (e.g. with a tire warning).
-                Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp).size(40.dp))
+                if (roomForIcon) Icon(FIcons.Music, null, tint = c.textFaint, modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp).size(40.dp))
             }
             val onArt = connected && bmp != null
             Column(
