@@ -288,16 +288,17 @@ object SpotifyController {
         if (r == null || !r.isConnected || _nowPlaying.value?.paused != false) return
         if (eq.onSpotify) return
         val now = com.taycanscreen.app.util.Mono.ms()
-        // One automatic try per app start. Three were allowed, and in a build 194 drive the second and
-        // third only paused the music again (Spotify still handed nothing over, and the equalizer was
-        // already working on the output mix). The Sound panel's Connect button can still try again.
-        if (!byOwner && (eqNudges >= 1 || (lastEqNudgeAt != 0L && now - lastEqNudgeAt < 120_000))) {
+        // Up to three automatic tries per app start, at least two minutes apart. Build 200 cut this to one
+        // after a drive where all three failed and only paused the music; the next log (build 198)
+        // showed the opposite: the first try failed and the second and third each put the equalizer
+        // back on Spotify. The owner's complaint was the equalizer not attaching, so three it is.
+        if (!byOwner && (eqNudges >= 3 || (lastEqNudgeAt != 0L && now - lastEqNudgeAt < 120_000))) {
             eq.tryGlobal()
             return
         }
         eqNudges++
         lastEqNudgeAt = now
-        AppLog.info(TAG, "Music is playing but Spotify hasn't handed its audio to the equalizer: pausing and resuming once (${if (byOwner) "Connect button" else "automatic"})")
+        AppLog.info(TAG, "Music is playing but Spotify hasn't handed its audio to the equalizer: pausing and resuming once (${if (byOwner) "Connect button" else "try $eqNudges of 3"})")
         r.playerApi.pause()
             .setResultCallback {
                 handler.postDelayed({
