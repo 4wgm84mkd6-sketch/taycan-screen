@@ -29,6 +29,9 @@ object SpotifyController {
     private const val RETRY_MS = 15_000L
     /** Spotify refusing an app it allowed before (cold start, clock not set, no internet yet): keep asking quietly. */
     private const val AUTH_RETRY_MS = 6_000L
+    /** While the box's clock is wrong Spotify can't connect: ask again slowly (a clock change reconnects at once). */
+    private const val CLOCK_RETRY_MS = 30_000L
+    const val CLOCK_WAIT = "Waiting for the box's clock. Spotify connects when it's right."
 
     enum class Link { NotSetUp, NotInstalled, NeedsSignIn, NeedsAuthorization, Connecting, Connected, Failed }
     data class Status(val link: Link, val detail: String = "")
@@ -65,6 +68,7 @@ object SpotifyController {
     private var artLoading: String? = null
     // Equalizer hand-over (see ensureEq).
     private var eqNudges = 0
+    private var clockNoteLogged = false
     private var lastEqNudgeAt = 0L
     private val eqCheck = Runnable { ensureEq(byOwner = false) }
     private val handler = Handler(Looper.getMainLooper())
@@ -160,7 +164,7 @@ object SpotifyController {
         if (connecting) return
         drop()
         connecting = true
-        _status.value = Status(Link.Connecting, "Connecting to Spotify…")
+        _status.value = Status(Link.Connecting, if (authorizedBefore() && com.taycanscreen.app.util.Friendly.clockIsWrong()) CLOCK_WAIT else "Connecting to Spotify…")
         val params = ConnectionParams.Builder(BuildConfig.SPOTIFY_CLIENT_ID)
             .setRedirectUri(BuildConfig.SPOTIFY_REDIRECT_URI)
             .showAuthView(showAuth)
@@ -189,6 +193,18 @@ object SpotifyController {
                         Status(Link.NeedsAuthorization, "Tap Allow to let Taycan Screen use Spotify")
                     name == "CouldNotFindSpotifyApp" -> Status(Link.NotInstalled, "Install Spotify on the box and sign in")
                     else -> Status(Link.Failed, "Spotify isn't responding. Trying again…")
+                }
+                // Cold starts begin with the box's clock at 30 July 2025, sometimes for five minutes or more
+                // (build 194 logs). Until it is corrected Spotify refuses every attempt, so say that
+                // instead of "Connecting…" and wait: the clock-change broadcast reconnects at once.
+                if (_status.value.link == Link.NeedsAuthorization && authorizedBefore() && com.taycanscreen.app.util.Friendly.clockIsWrong()) {
+                    if (!clockNoteLogged) {
+                        clockNoteLogged = true
+                        AppLog.info(TAG, "Spotify refuses while the box's clock is wrong; waiting for the clock")
+                    }
+                    _status.value = Status(Link.Connecting, CLOCK_WAIT)
+                    scheduleRetry(CLOCK_RETRY_MS)
+                    return
                 }
                 // Spotify sometimes asks again for an app the owner already allowed (seen after a cold
                 // start). Its own screen passes an already-allowed app straight through, so show it
@@ -272,13 +288,16 @@ object SpotifyController {
         if (r == null || !r.isConnected || _nowPlaying.value?.paused != false) return
         if (eq.onSpotify) return
         val now = com.taycanscreen.app.util.Mono.ms()
-        if (!byOwner && (eqNudges >= 3 || (lastEqNudgeAt != 0L && now - lastEqNudgeAt < 120_000))) {
+        // One automatic try per app start. Three were allowed, and in a build 194 drive the second and
+        // third only paused the music again (Spotify still handed nothing over, and the equalizer was
+        // already working on the output mix). The Sound panel's Connect button can still try again.
+        if (!byOwner && (eqNudges >= 1 || (lastEqNudgeAt != 0L && now - lastEqNudgeAt < 120_000))) {
             eq.tryGlobal()
             return
         }
         eqNudges++
         lastEqNudgeAt = now
-        AppLog.info(TAG, "Music is playing but Spotify hasn't handed its audio to the equalizer: pausing and resuming once (${if (byOwner) "Connect button" else "try $eqNudges of 3"})")
+        AppLog.info(TAG, "Music is playing but Spotify hasn't handed its audio to the equalizer: pausing and resuming once (${if (byOwner) "Connect button" else "automatic"})")
         r.playerApi.pause()
             .setResultCallback {
                 handler.postDelayed({

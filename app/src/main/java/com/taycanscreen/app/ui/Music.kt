@@ -197,6 +197,18 @@ fun MusicPanel(
                         SpotifyController.Link.NeedsSignIn, SpotifyController.Link.NotInstalled -> WideButton("Open Spotify", c, primary = true, onClick = onOpenSpotifyApp)
                         else -> Unit
                     }
+                    if (status.detail == SpotifyController.CLOCK_WAIT) {
+                        // The box sets its clock by itself once it is online, but that can take minutes.
+                        // In its date settings, switching automatic time off and on makes it ask again now.
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        WideButton("Date & time settings", c, primary = true) {
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(android.provider.Settings.ACTION_DATE_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }.onFailure { com.taycanscreen.app.log.AppLog.warn("spotify", "Couldn't open date settings: ${it.message}") }
+                        }
+                    }
                     if (status.link != SpotifyController.Link.NotSetUp) WideButton("Try again", c) { SpotifyController.retryNow() }
                 }
             }
