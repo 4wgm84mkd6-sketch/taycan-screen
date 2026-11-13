@@ -213,6 +213,8 @@ fun MapArea(
             Sun.longitude = loc.longitude
             if (gps.fix == null) {
                 Boot.mark("First GPS fix")
+                // How far the box's clock is from satellite time at that moment (for the wrong-clock problem).
+                AppLog.info("clock", "First fix (${loc.provider}) is stamped ${java.time.Instant.ofEpochMilli(loc.time)}; the box's clock is ${(System.currentTimeMillis() - loc.time) / 1000} s from that")
                 // After the hand-off, lock the reticle on now (or when ring 2 lands, if it's still flying).
                 val h = Boot.handoffAt.value
                 if (h != 0L && targets.acquireAt == 0L) targets.acquireAt = maxOf(SystemClock.elapsedRealtime(), h + 700)
