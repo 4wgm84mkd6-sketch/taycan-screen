@@ -7,6 +7,7 @@ class TaycanApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLog.init(this)
+        com.taycanscreen.app.obd.ObdEngine.noteStart(this)
         com.taycanscreen.app.audio.EqEngine.init(this)
         com.taycanscreen.app.music.SpotifyWeb.init(this)
         com.taycanscreen.app.net.NetMonitor.init(this)

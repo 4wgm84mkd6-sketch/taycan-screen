@@ -59,18 +59,52 @@ object ObdEngine {
         private const val RETRY_FAST_MS = 500L
         private const val RETRY_SLOW_MS = 5_000L
         private const val RETRY_FAST_FOR_MS = 120_000L
-        /** Full polling cycles with no answer from the car before we stop talking to it. */
-        private const val QUIET_CYCLES_TO_SLEEP = 5
-        /** While the car is off, check only the adapter's 12 V reading (no CAN traffic) this often. */
-        private const val ASLEEP_CHECK_MS = 30_000L
-        /** 12 V at or above this means the car's DC-DC converter is charging, i.e. the car is on. */
-        private const val CAR_ON_VOLTS = 13.0
+        /**
+         * The drive unit. It answers while the car is switched on and falls silent when it is switched
+         * off, while the gateway, battery and climate modules go on answering for a while. The app used
+         * to keep asking those, including in the box's short restart right after parking, i.e. while the
+         * car was being locked. The owner's alarm is set off by the adapter (confirmed 2026-11-14) and
+         * may be set off by exactly that traffic, so: no answer from the drive unit = ask nothing else.
+         */
+        private const val DRIVE_UNIT = "7E0"
+        /** Cycles in a row without an answer from the drive unit before the app goes quiet. */
+        private const val QUIET_CYCLES_TO_SLEEP = 2
+        /** While the car is off: one read to the drive unit this often, to notice it coming on (the first few sooner). */
+        private const val OFF_PROBE_FAST_MS = 2_000L
+        private const val OFF_PROBE_SLOW_MS = 10_000L
+        private const val OFF_FAST_PROBES = 3
+        /**
+         * After parking the box loses power, comes back for a few seconds to a minute, and loses it again.
+         * A start this soon after the previous session's last log line is taken for that restart, and the
+         * car is asked nothing for the first [GHOST_HOLD_MS] (most of those restarts are over by then).
+         */
+        private const val GHOST_GAP_MS = 180_000L
+        private const val GHOST_HOLD_MS = 15_000L
 
     private lateinit var app: Application
+    /** elapsedRealtime when the app attached, and whether this start looks like the box's short restart after parking. */
+    private var appStartedAt = 0L
+    private var ghostStart = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun attach(application: Application) {
         if (!::app.isInitialized) app = application
+    }
+
+    /**
+     * Called once when the app starts (after the log is open). Notes the time and whether this start
+     * comes within [GHOST_GAP_MS] of the previous session's last log line, which is how the box's short
+     * restart after parking looks. The box's clock survives that short gap; with a clock that is plainly
+     * wrong this is a cold start, not that restart.
+     */
+    fun noteStart(context: Context) {
+        appStartedAt = android.os.SystemClock.elapsedRealtime()
+        ghostStart = runCatching {
+            val now = System.currentTimeMillis()
+            val previous = AppLog.sessionFiles(context).drop(1).firstOrNull() // the first is this session's own file
+            previous != null && !com.taycanscreen.app.util.Friendly.clockIsWrong(now) && now - previous.lastModified() in 0..GHOST_GAP_MS
+        }.getOrDefault(false)
+        if (ghostStart) AppLog.info(TAG, "Started within 3 minutes of the last session: probably the box's short restart after parking")
     }
 
     private val prefs by lazy { app.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
@@ -287,22 +321,59 @@ object ObdEngine {
         var cycle = 0L
         val lastSessionAt = HashMap<String, Long>()
         var quietCycles = 0
-        var asleepBaseline: Double? = null
+        var offProbes = 0
+
+        /** Points the adapter at a module (header, reply filter, flow control). False if it didn't take. */
+        fun pointAt(cmd: ObdCommand): Boolean {
+            if (header == cmd.hdr && cmd.flowControl == customFlowControl) return true
+            // Also re-run when flow control differs on the same module (e.g. 710 2AB6 fc vs 2A0C).
+            var ok = true
+            if (header != cmd.hdr) {
+                ok = setting(c, "ATSH${cmd.hdr}") && setting(c, "ATCRA${cmd.rax}")
+            }
+            if (ok && cmd.flowControl) {
+                // Flow control frames for multi-frame replies go to this module's own id.
+                ok = setting(c, "ATFCSH${cmd.hdr}") && setting(c, "ATFCSD300000") && setting(c, "ATFCSM1")
+            } else if (ok && customFlowControl) {
+                ok = setting(c, "ATFCSM0")
+            }
+            if (!ok) {
+                header = null
+                customFlowControl = true
+                return false
+            }
+            customFlowControl = cmd.flowControl
+            header = cmd.hdr
+            return true
+        }
+
+        // The box's short restart after parking: hold back, the car is being locked.
+        val sinceStart = android.os.SystemClock.elapsedRealtime() - appStartedAt
+        if (ghostStart && sinceStart < GHOST_HOLD_MS) {
+            AppLog.info(TAG, "This looks like the box's short restart after parking: asking the car nothing for ${(GHOST_HOLD_MS - sinceStart) / 1000} s")
+            _status.value = _status.value.copy(state = LinkState.CarAsleep, detail = "Just parked: waiting before asking the car anything.")
+            delay(GHOST_HOLD_MS - sinceStart)
+            _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car")
+        }
+
         while (currentCoroutineContext().isActive) {
             if (quietCycles >= QUIET_CYCLES_TO_SLEEP) {
-                // Car is off: send nothing onto the car's network, so its modules can sleep and the
-                // 12 V battery isn't drained. Only read the adapter's own voltage measurement.
-                val volts = adapterVolts(c)
-                if (asleepBaseline == null) asleepBaseline = volts
-                val base = asleepBaseline
-                if (volts != null && (volts >= CAR_ON_VOLTS || (base != null && volts - base >= 0.4))) {
-                    AppLog.info(TAG, "12 V at %.1f V: car looks switched on, resuming".format(volts))
+                // Car is off. The only thing sent is one read to the drive unit now and then, to notice
+                // the car coming on; the 12 V readout comes from the adapter itself.
+                delay(if (offProbes < OFF_FAST_PROBES) OFF_PROBE_FAST_MS else OFF_PROBE_SLOW_MS)
+                offProbes++
+                if (offProbes % 6 == 1) adapterVolts(c)
+                val probe = Taycan.SPEED_DIR
+                if (!pointAt(probe.command)) continue
+                val r = request(c, probe.command)
+                if (r is IsoTp.Result.Payload && r.bytes.firstOrNull() == 0x62.toByte()) {
+                    AppLog.info(TAG, "The drive unit answers again: the car is on, reading everything")
+                    record(probe, r)
                     quietCycles = 0
-                    asleepBaseline = null
+                    offProbes = 0
+                    cycle = 0L // ask for every value straight away, as after connecting
                     _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car")
-                    continue
                 }
-                delay(ASLEEP_CHECK_MS)
                 continue
             }
             val req = discoveryRequest
@@ -343,27 +414,10 @@ object ObdEngine {
                 val cmd = sig.command
                 if (cmd.hdr == silentModule) continue
                 val firstForModule = askedModule != cmd.hdr
-                if (header != cmd.hdr || cmd.flowControl != customFlowControl) {
-                    // Also re-run when flow control differs on the same module (e.g. 710 2AB6 fc vs 2A0C).
-                    var ok = true
-                    if (header != cmd.hdr) {
-                        ok = setting(c, "ATSH${cmd.hdr}") && setting(c, "ATCRA${cmd.rax}")
-                    }
-                    if (ok && cmd.flowControl) {
-                        // Flow control frames for multi-frame replies go to this module's own id.
-                        ok = setting(c, "ATFCSH${cmd.hdr}") && setting(c, "ATFCSD300000") && setting(c, "ATFCSM1")
-                    } else if (ok && customFlowControl) {
-                        ok = setting(c, "ATFCSM0")
-                    }
-                    if (!ok) {
-                        // Don't ask the car anything while the adapter may be pointed at another module.
-                        AppLog.warn(TAG, "Adapter didn't take the settings for ${cmd.hdr}; skipping ${sig.id} this round")
-                        header = null
-                        customFlowControl = true
-                        continue
-                    }
-                    customFlowControl = cmd.flowControl
-                    header = cmd.hdr
+                if (!pointAt(cmd)) {
+                    // Don't ask the car anything while the adapter may be pointed at another module.
+                    AppLog.warn(TAG, "Adapter didn't take the settings for ${cmd.hdr}; skipping ${sig.id} this round")
+                    continue
                 }
                 var result = request(c, cmd)
                 // 10 03 (extended session) is no longer sent up front: on this car the battery module
@@ -380,15 +434,18 @@ object ObdEngine {
                 if (firstForModule && result is IsoTp.Result.Failure && result.reason == "NO DATA") silentModule = cmd.hdr
                 record(sig, result)
                 if (result is IsoTp.Result.Payload && result.bytes.firstOrNull() == 0x62.toByte()) answered = true
+                // The drive unit didn't answer: the car is off. Ask nothing else this cycle.
+                if (silentModule == DRIVE_UNIT) break
             }
             if (answered) {
                 quietCycles = 0
             } else if (++quietCycles == QUIET_CYCLES_TO_SLEEP) {
-                AppLog.info(TAG, "Car not answering for $QUIET_CYCLES_TO_SLEEP cycles: pausing requests (car off?)")
+                AppLog.info(TAG, "The drive unit isn't answering: the car is switched off. Asking nothing else until it is on.")
+                offProbes = 0
                 _readings.value = emptyMap()
                 _status.value = _status.value.copy(
                     state = LinkState.CarAsleep,
-                    detail = "The car isn't answering (switched off?). Paused so the car can sleep; resumes when it's on.",
+                    detail = "The car is switched off. Nothing is asked of it until it's on.",
                 )
             }
             cycle++
