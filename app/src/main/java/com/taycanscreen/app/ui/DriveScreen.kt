@@ -703,7 +703,13 @@ private data class LinkNote(val text: String, val warn: Boolean)
 private fun linkNote(s: com.taycanscreen.app.obd.ObdStatus, carOk: Boolean, now: Long): LinkNote? = when (s.state) {
     LinkState.Live -> if (carOk) null else LinkNote("WAITING FOR THE CAR…", false)
     LinkState.CarAsleep -> LinkNote("CAR OFF", false)
-    LinkState.Connecting, LinkState.Initializing, LinkState.Retrying ->
+    // Bluetooth can't reach the adapter. The owner unplugs it (or will switch it off) when parked, because
+    // left powered in a locked car it sets off the alarm (confirmed 2026-11-14), so after 30 s say the
+    // likely reason in plain words. The app keeps trying and connects by itself once it's back.
+    LinkState.Connecting, LinkState.Retrying ->
+        if (s.downSince != 0L && now - s.downSince > 30_000) LinkNote("ADAPTER NOT FOUND · IS IT PLUGGED IN?", true)
+        else LinkNote("CONNECTING TO CAR…", false)
+    LinkState.Initializing ->
         if (s.downSince != 0L && now - s.downSince > 30_000) LinkNote("CAR LINK NOT ANSWERING · STILL TRYING", true)
         else LinkNote("CONNECTING TO CAR…", false)
     LinkState.BluetoothOff -> LinkNote("BLUETOOTH IS OFF ON THE BOX", true)
