@@ -19,7 +19,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.padding
@@ -85,6 +88,7 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -297,9 +301,9 @@ fun MapArea(
             horizontalAlignment = Alignment.End,
         ) {
             Column(Modifier.card(c.overlay, c.border)) {
-                MapButton(FIcons.Plus, "Zoom in", c.text) { MapHolder.map?.animateCamera(CameraUpdateFactory.zoomIn()) }
+                ZoomButton(FIcons.Plus, "Zoom in", c.text, +1)
                 Box(Modifier.padding(horizontal = 20.dp).width(40.dp).height(1.dp).background(c.border))
-                MapButton(FIcons.Minus, "Zoom out", c.text) { MapHolder.map?.animateCamera(CameraUpdateFactory.zoomOut()) }
+                ZoomButton(FIcons.Minus, "Zoom out", c.text, -1)
             }
             NorthButton(northUp, gps, c) {
                 northUp = !northUp
@@ -433,9 +437,53 @@ fun MapArea(
     }
 }
 
-/** The current map, for the zoom buttons. */
+/** The current map. */
 private object MapHolder {
     var map: MapLibreMap? = null
+}
+
+/**
+ * Zoom from the + / − buttons (owner, 2026-11-14: zoom felt jumpy). A press zooms one level at once;
+ * holding keeps zooming until the finger lifts. The map's frame loop applies it, eased, in the same
+ * camera update that follows the car, so following never cancels a zoom (it used to while driving).
+ */
+private object MapZoom {
+    /** Zoom the buttons are heading to; null = nothing to do. */
+    var target: Double? = null
+    /** Steps asked for by presses since the last frame (+ in, − out). */
+    var steps = 0
+    /** Button held: +1 in, −1 out, 0 none; since when (elapsedRealtime). */
+    var held = 0
+    var heldSince = 0L
+    /** Holding longer than this keeps zooming. */
+    const val HOLD_AFTER_MS = 400L
+    /** Zoom levels per second while held. */
+    const val HOLD_RATE = 1.8
+    /** How quickly the map catches up with the target (time constant, s): a step takes ~0.3 s. */
+    const val EASE_S = 0.09
+
+    fun press(dir: Int) {
+        steps += dir
+        held = dir
+        heldSince = SystemClock.elapsedRealtime()
+    }
+
+    fun release(dir: Int) {
+        if (held == dir) held = 0
+    }
+}
+
+/** How long the map takes to glide back onto the car when following starts again. */
+private const val GLIDE_MS = 900L
+
+private fun easeInOut(t: Double): Double = if (t < 0.5) 4 * t * t * t else 1 - Math.pow(-2 * t + 2, 3.0) / 2
+
+private fun lerp(a: Double, b: Double, t: Double) = a + (b - a) * t
+
+/** Between two directions in degrees, the short way round. */
+private fun lerpAngle(a: Double, b: Double, t: Double): Double {
+    val d = ((b - a) % 360 + 540) % 360 - 180
+    return ((a + d * t) % 360 + 360) % 360
 }
 
 /**
@@ -512,14 +560,14 @@ private fun VectorMap(
                 override fun onMove(detector: org.maplibre.android.gestures.MoveGestureDetector) = Unit
                 override fun onMoveEnd(detector: org.maplibre.android.gestures.MoveGestureDetector) = Unit
             })
-            m.addOnCameraMoveStartedListener { reason ->
-                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) moved.value()
-            }
+            // Only dragging the map stops following. Zooming (double-tap, double-tap-and-slide, + / −)
+            // keeps following and zooms around the car, like a phone's map.
             map = m
             MapHolder.map = m
             m.setStyle(Style.Builder().fromUri(MapTheme.STYLE_URL)) { s ->
                 AppLog.info("map", "Vector map ready (${s.layers.size} layers, size ${size.name})")
                 style = s
+                com.taycanscreen.app.map.OfflineMap.start(context)
             }
         }
         onDispose {
@@ -549,31 +597,86 @@ private fun VectorMap(
         val m = map ?: return@LaunchedEffect
         var lastTarget: LatLng? = null
         var lastBearing = Double.NaN
+        var lastFrameNs = 0L
+        var wasFollowing = followingState.value
+        // Where the camera was when following started again (it glides from there onto the car).
+        var glideFrom: CameraPosition? = null
+        var glideStart = 0L
+        var focal: android.graphics.PointF? = null
+        MapZoom.target = null
+        MapZoom.steps = 0
         while (true) {
             // Every frame (it used to skip every other one, which capped the map at 30 a second).
-            withFrameNanos { }
+            val frameNs = withFrameNanos { it }
+            val dt = if (lastFrameNs == 0L) 0.0 else ((frameNs - lastFrameNs) / 1e9).coerceIn(0.0, 0.1)
+            lastFrameNs = frameNs
             val now = SystemClock.elapsedRealtime()
             val w = mapView.width.toFloat()
             val h = mapView.height.toFloat()
             if (w <= 0f) continue
             val shown = tracker?.tick(now)
+            val following = followingState.value
+            if (following && !wasFollowing) {
+                glideFrom = m.cameraPosition
+                glideStart = now
+            }
+            if (!following) glideFrom = null
+            wasFollowing = following
+
+            // Zoom buttons: one level per press, more while held, eased.
+            val zoomNow = m.cameraPosition.zoom
+            var zoomTarget = MapZoom.target
+            if (MapZoom.steps != 0) {
+                zoomTarget = (zoomTarget ?: zoomNow) + MapZoom.steps
+                MapZoom.steps = 0
+            }
+            if (MapZoom.held != 0 && now - MapZoom.heldSince >= MapZoom.HOLD_AFTER_MS) {
+                zoomTarget = (zoomTarget ?: zoomNow) + MapZoom.held * MapZoom.HOLD_RATE * dt
+            }
+            var newZoom: Double? = null
+            if (zoomTarget != null) {
+                zoomTarget = zoomTarget.coerceIn(m.minZoomLevel, m.maxZoomLevel)
+                var z = zoomNow + (zoomTarget - zoomNow) * (1 - exp(-dt / MapZoom.EASE_S))
+                if (abs(zoomTarget - z) < 0.003 && MapZoom.held == 0) {
+                    z = zoomTarget
+                    zoomTarget = null
+                }
+                newZoom = z
+            }
+            MapZoom.target = zoomTarget
+
             val camBearing = m.cameraPosition.bearing
-            if (shown != null && followingState.value) {
-                val target = LatLng(shown.lat, shown.lon)
-                val bearing = if (northUp) 0.0 else shown.bearing?.toDouble() ?: camBearing
-                val changed = lastTarget == null || abs(target.latitude - lastTarget!!.latitude) > 1e-7 ||
+            if (shown != null && following) {
+                var target = LatLng(shown.lat, shown.lon)
+                var bearing = if (northUp) 0.0 else shown.bearing?.toDouble() ?: camBearing
+                // Heading-up: the car sits below the centre (padding pushes the focus point down).
+                var top = if (northUp) 0.0 else h * 2.0 * carLow
+                var gliding = false
+                glideFrom?.let { from ->
+                    val t = ((now - glideStart).toDouble() / GLIDE_MS).coerceIn(0.0, 1.0)
+                    val e = easeInOut(t)
+                    val fromT = from.target
+                    if (fromT != null) {
+                        val dLon = ((target.longitude - fromT.longitude) % 360 + 540) % 360 - 180
+                        target = LatLng(lerp(fromT.latitude, target.latitude, e), fromT.longitude + dLon * e)
+                    }
+                    bearing = lerpAngle(from.bearing, bearing, e)
+                    top = lerp(from.padding?.getOrNull(1) ?: top, top, e)
+                    gliding = true
+                    if (t >= 1.0) glideFrom = null
+                }
+                val changed = gliding || newZoom != null || lastTarget == null ||
+                    abs(target.latitude - lastTarget!!.latitude) > 1e-7 ||
                     abs(target.longitude - lastTarget!!.longitude) > 1e-7 || abs(bearing - lastBearing) > 0.05
                 if (changed) {
-                    // Heading-up: the car sits below the centre (padding pushes the focus point down).
-                    val top = if (northUp) 0.0 else h * 2.0 * carLow
-                    m.moveCamera(
-                        CameraUpdateFactory.newCameraPosition(
-                            CameraPosition.Builder().target(target).bearing(bearing).padding(0.0, top, 0.0, 0.0).build(),
-                        ),
-                    )
+                    val pos = CameraPosition.Builder().target(target).bearing(bearing).padding(0.0, top, 0.0, 0.0)
+                    newZoom?.let { pos.zoom(it) }
+                    m.moveCamera(CameraUpdateFactory.newCameraPosition(pos.build()))
                     lastTarget = target
                     lastBearing = bearing
                 }
+            } else if (newZoom != null) {
+                m.moveCamera(CameraUpdateFactory.zoomTo(newZoom))
             }
             // Overlays: marker position and rotation on screen, map orientation for the labels/compass.
             val camB = m.cameraPosition.bearing
@@ -581,6 +684,13 @@ private fun VectorMap(
             if (shown != null) {
                 val pt = m.projection.toScreenLocation(LatLng(shown.lat, shown.lon))
                 targets.markerInMap = Offset(pt.x, pt.y)
+                // While following, double-tap zooms around the car instead of where the finger is.
+                val f = if (following && glideFrom == null) pt else null
+                val old = focal
+                if ((f == null) != (old == null) || (f != null && old != null && (abs(f.x - old.x) > 0.5f || abs(f.y - old.y) > 0.5f))) {
+                    m.uiSettings.focalPoint = f
+                    focal = f
+                }
                 marker.visible = true
                 marker.hasHeading = shown.bearing != null
                 marker.rotation = ((shown.bearing ?: 0f) - camB.toFloat())
@@ -800,6 +910,32 @@ private inline fun DrawScope.rotateAround(deg: Float, pivot: Offset, block: Draw
 
 private inline fun DrawScope.scaleAround(s: Float, pivot: Offset, block: DrawScope.() -> Unit) =
     drawScale(s, s, pivot, block)
+
+/** + / −: a press zooms one level, holding keeps zooming (see [MapZoom]). */
+@Composable
+private fun ZoomButton(icon: ImageVector, label: String, tint: Color, dir: Int) {
+    var pressed by remember { mutableStateOf(false) }
+    Box(
+        Modifier.size(MAP_BTN)
+            .background(if (pressed) tint.copy(alpha = 0.12f) else Color.Transparent)
+            .pointerInput(dir) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    pressed = true
+                    MapZoom.press(dir)
+                    try {
+                        waitForUpOrCancellation()
+                    } finally {
+                        pressed = false
+                        MapZoom.release(dir)
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(34.dp))
+    }
+}
 
 @Composable
 private fun MapButton(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
