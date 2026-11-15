@@ -97,6 +97,13 @@ object ObdEngine {
      * restart after parking looks. The box's clock survives that short gap; with a clock that is plainly
      * wrong this is a cold start, not that restart.
      */
+    /**
+     * Milliseconds left of a hold of [holdMs] counted from app start, if this start looks like the box's
+     * short restart after parking; 0 otherwise. Used by Spotify too: see SpotifyController.connect.
+     */
+    fun justParkedHoldLeft(holdMs: Long): Long =
+        if (!ghostStart) 0L else (holdMs - (android.os.SystemClock.elapsedRealtime() - appStartedAt)).coerceAtLeast(0L)
+
     fun noteStart(context: Context) {
         appStartedAt = android.os.SystemClock.elapsedRealtime()
         ghostStart = runCatching {

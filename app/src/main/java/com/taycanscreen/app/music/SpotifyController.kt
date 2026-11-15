@@ -31,6 +31,14 @@ object SpotifyController {
     private const val AUTH_RETRY_MS = 6_000L
     /** While the box's clock is wrong Spotify can't connect: ask again slowly (a clock change reconnects at once). */
     private const val CLOCK_RETRY_MS = 30_000L
+    /**
+     * After parking the box restarts for a few seconds and loses power again. Spotify signed itself out
+     * on the box twice (12 Nov 19:32, 14 Nov 16:17), both times in such a restart right after a drive in
+     * which it had been connected. Starting Spotify (which connecting does) and cutting its power seconds
+     * later is the likeliest way to damage its saved login, so in such a restart wait this long first.
+     * Most of those restarts are over within 10 s.
+     */
+    private const val JUST_PARKED_HOLD_MS = 20_000L
     const val CLOCK_WAIT = "Waiting for the box's clock. Spotify connects when it's right."
 
     enum class Link { NotSetUp, NotInstalled, NeedsSignIn, NeedsAuthorization, Connecting, Connected, Failed }
@@ -69,6 +77,7 @@ object SpotifyController {
     // Equalizer hand-over (see ensureEq).
     private var eqNudges = 0
     private var clockNoteLogged = false
+    private var holdLogged = false
     private var lastEqNudgeAt = 0L
     private val eqCheck = Runnable { ensureEq(byOwner = false) }
     private val handler = Handler(Looper.getMainLooper())
@@ -136,7 +145,7 @@ object SpotifyController {
     fun onAuthorizationResult(error: String?) {
         if (error == null) {
             AppLog.info(TAG, "Spotify authorization granted")
-            connect(showAuth = false)
+            connect(showAuth = false, byOwner = true)
         } else {
             AppLog.warn(TAG, "Spotify authorization failed: $error")
             // A lapsed search sign-in mustn't hide a player that is connected and working.
@@ -145,10 +154,19 @@ object SpotifyController {
     }
 
     fun retryNow() {
-        if (::appContext.isInitialized) connect(showAuth = true)
+        if (::appContext.isInitialized) connect(showAuth = true, byOwner = true)
     }
 
-    private fun connect(showAuth: Boolean) {
+    private fun connect(showAuth: Boolean, byOwner: Boolean = false) {
+        val hold = com.taycanscreen.app.obd.ObdEngine.justParkedHoldLeft(JUST_PARKED_HOLD_MS)
+        if (hold > 0 && !byOwner) {
+            if (!holdLogged) {
+                holdLogged = true
+                AppLog.info(TAG, "Just parked: not starting Spotify for ${hold / 1000} s (the box usually loses power again within seconds)")
+            }
+            scheduleRetry(hold)
+            return
+        }
         if (!configured) {
             _status.value = Status(Link.NotSetUp, "Spotify isn't available in this version")
             return
