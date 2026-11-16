@@ -69,16 +69,16 @@ object ObdEngine {
         private const val DRIVE_UNIT = "7E0"
         /** Cycles in a row without an answer from the drive unit before the app goes quiet. */
         private const val QUIET_CYCLES_TO_SLEEP = 2
-        /** While the car is off: one read to the drive unit this often, to notice it coming on (the first few sooner). */
-        private const val OFF_PROBE_FAST_MS = 2_000L
-        private const val OFF_PROBE_SLOW_MS = 10_000L
-        private const val OFF_FAST_PROBES = 3
         /**
          * After parking the box loses power, comes back for a few seconds to a minute, and loses it again.
          * A start this soon after the previous session's last log line is taken for that restart, and the
          * car is asked nothing for the first [GHOST_HOLD_MS] (most of those restarts are over by then).
          */
         private const val GHOST_GAP_MS = 180_000L
+        /** The box's short restart is a cold boot: Android has only just started. (An app update restarts the app with Android long up.) */
+        private const val GHOST_MAX_UPTIME_MS = 90_000L
+        /** After the app put the adapter to sleep (which drops the Bluetooth link): wait this long before looking again. */
+        private const val SLEEP_RECHECK_MS = 10_000L
         private const val GHOST_HOLD_MS = 15_000L
 
     private lateinit var app: Application
@@ -109,7 +109,8 @@ object ObdEngine {
         ghostStart = runCatching {
             val now = System.currentTimeMillis()
             val previous = AppLog.sessionFiles(context).drop(1).firstOrNull() // the first is this session's own file
-            previous != null && !com.taycanscreen.app.util.Friendly.clockIsWrong(now) && now - previous.lastModified() in 0..GHOST_GAP_MS
+            previous != null && !com.taycanscreen.app.util.Friendly.clockIsWrong(now) && now - previous.lastModified() in 0..GHOST_GAP_MS &&
+                android.os.SystemClock.elapsedRealtime() < GHOST_MAX_UPTIME_MS
         }.getOrDefault(false)
         if (ghostStart) AppLog.info(TAG, "Started within 3 minutes of the last session: probably the box's short restart after parking")
     }
@@ -148,6 +149,22 @@ object ObdEngine {
     private val _discovery = MutableStateFlow<Discovery.State>(Discovery.State.Idle)
     val discovery: StateFlow<Discovery.State> = _discovery.asStateFlow()
     @Volatile private var discoveryRequest: Discovery.Request? = null
+    /** Set when the app put the adapter to sleep: the link drops, and the next connect checks the car once before sleeping it again. */
+    @Volatile private var sleptByApp = false
+    /** Owner's request from Setup › Tools: the adapter's own sleep timer in seconds (30 or 600). */
+    @Volatile private var timerRequest: Int? = null
+    private val _adapterTimer = MutableStateFlow<String?>(null)
+    /** Result of the last adapter sleep-timer request, in plain words (Setup › Tools). */
+    val adapterTimer: StateFlow<String?> = _adapterTimer.asStateFlow()
+
+    fun requestAdapterTimer(seconds: Int) {
+        require(seconds == 30 || seconds == 600)
+        timerRequest = seconds
+        _adapterTimer.value = "Waiting for the car connection…"
+    }
+
+    /** Thrown to end the polling loop after the app put the adapter to sleep (its Bluetooth link drops). */
+    private class AdapterSleeping : Exception("adapter put to sleep")
     @Volatile private var discoveryCancel = false
     @Volatile private var scanAutoResumes = 0
     @Volatile private var scanPosition: Pair<String, Int>? = null
@@ -264,6 +281,15 @@ object ObdEngine {
                 pollForever(conn)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AdapterSleeping) {
+                // The app put the adapter to sleep because the car is off; its link has dropped. Look again
+                // in a while (the box usually loses power before that). Not a fault.
+                _readings.value = emptyMap()
+                _status.value = _status.value.copy(state = LinkState.CarAsleep, detail = "The car is switched off. The adapter is asleep until it's on.")
+                current = null
+                conn?.close()
+                delay(SLEEP_RECHECK_MS)
+                continue
             } catch (e: Exception) {
                 // stop() closes the link to unblock us: that's not a fault.
                 if (!currentCoroutineContext().isActive) throw kotlinx.coroutines.CancellationException("stopped")
@@ -328,8 +354,11 @@ object ObdEngine {
         var cycle = 0L
         val lastSessionAt = HashMap<String, Long>()
         var quietCycles = 0
-        var offProbes = 0
-        var adapterAsleep = false
+        // Coming back after the app put the adapter to sleep: one unanswered cycle is enough to sleep it again.
+        if (sleptByApp) {
+            sleptByApp = false
+            quietCycles = QUIET_CYCLES_TO_SLEEP - 1
+        }
 
         /**
          * Tells the adapter to go to sleep now (adapter-only command; no stored setting changes). The
@@ -337,25 +366,19 @@ object ObdEngine {
          * stays awake 10 minutes after the box last talked to it. So whenever the app sees the car is off,
          * the last thing it sends is "sleep". The adapter wakes again on the app's next command.
          */
-        fun sleepAdapter(why: String) {
+        fun sleepAdapter(why: String): Nothing {
             var reply = runCatching { c.send("ATLP", 1500) }.getOrDefault("(no reply)")
             var cmd = "ATLP"
             if ("?" in reply) {
                 cmd = "STSLEEP"
-                reply = runCatching { c.send("STSLEEP", 1500) }.getOrDefault("(no reply)")
+                // It answers "OK" and sleeps without a prompt: read what comes, don't wait for one.
+                reply = runCatching { c.sendAll("STSLEEP", quietMs = 300, maxMs = 1500) }.getOrDefault("(no reply)")
             }
             AppLog.info(TAG, "Adapter told to sleep ($why): $cmd → ${reply.trim().replace("\r", " ").ifBlank { "(nothing)" }}")
-            adapterAsleep = true
-        }
-
-        /** Wakes the adapter after [sleepAdapter] and sets it up again (it may have reset its settings). */
-        fun wakeAdapter() {
-            if (!adapterAsleep) return
-            adapterAsleep = false
-            runCatching { c.send("ATI", 1500) } // the first characters after sleep may only wake it
-            initAdapter(c)
-            header = null
-            customFlowControl = true
+            // In the car (15 Nov): ATLP answered "?", STSLEEP answered "OK" and the adapter slept,
+            // dropping its Bluetooth link; it woke when the box connected again.
+            sleptByApp = true
+            throw AdapterSleeping()
         }
 
         /** Points the adapter at a module (header, reply filter, flow control). False if it didn't take. */
@@ -385,35 +408,16 @@ object ObdEngine {
         // The box's short restart after parking: hold back, the car is being locked.
         val sinceStart = android.os.SystemClock.elapsedRealtime() - appStartedAt
         if (ghostStart && sinceStart < GHOST_HOLD_MS) {
-            AppLog.info(TAG, "This looks like the box's short restart after parking: asking the car nothing for ${(GHOST_HOLD_MS - sinceStart) / 1000} s")
+            AppLog.info(TAG, "This looks like the box's short restart after parking: putting the adapter to sleep, asking the car nothing")
             _status.value = _status.value.copy(state = LinkState.CarAsleep, detail = "Just parked: waiting before asking the car anything.")
-            sleepAdapter("just parked")
-            delay(GHOST_HOLD_MS - sinceStart)
-            // Then check like a switched-off car: one read now and then, the adapter asleep in between.
-            quietCycles = QUIET_CYCLES_TO_SLEEP
+            sleepAdapter("just parked") // ends this loop; the next connect checks the car once
         }
 
         while (currentCoroutineContext().isActive) {
-            if (quietCycles >= QUIET_CYCLES_TO_SLEEP) {
-                // Car is off. The only thing sent is one read to the drive unit now and then, to notice
-                // the car coming on; the 12 V readout comes from the adapter itself.
-                delay(if (offProbes < OFF_FAST_PROBES) OFF_PROBE_FAST_MS else OFF_PROBE_SLOW_MS)
-                offProbes++
-                wakeAdapter() // reads the 12 V too
-                val probe = Taycan.SPEED_DIR
-                if (!pointAt(probe.command)) { sleepAdapter("car still off"); continue }
-                val r = request(c, probe.command)
-                if (!(r is IsoTp.Result.Payload && r.bytes.firstOrNull() == 0x62.toByte())) {
-                    sleepAdapter("car still off")
-                } else {
-                    AppLog.info(TAG, "The drive unit answers again: the car is on, reading everything")
-                    record(probe, r)
-                    quietCycles = 0
-                    offProbes = 0
-                    cycle = 0L // ask for every value straight away, as after connecting
-                    _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car")
-                }
-                continue
+            val timer = timerRequest
+            if (timer != null) {
+                timerRequest = null
+                setAdapterTimer(c, timer) // ends with a reset of the adapter, so reconnect afterwards
             }
             val req = discoveryRequest
             if (req != null) {
@@ -480,18 +484,37 @@ object ObdEngine {
                 quietCycles = 0
             } else if (++quietCycles == QUIET_CYCLES_TO_SLEEP) {
                 AppLog.info(TAG, "The drive unit isn't answering: the car is switched off. Asking nothing else until it is on.")
-                offProbes = 0
-                sleepAdapter("car switched off")
                 _readings.value = emptyMap()
-                _status.value = _status.value.copy(
-                    state = LinkState.CarAsleep,
-                    detail = "The car is switched off. Nothing is asked of it until it's on.",
-                )
+                sleepAdapter("car switched off")
             }
             cycle++
             if (cycle % 100 == 50L) adapterVolts(c) // refresh the 12 V readout now and then (adapter only)
             delay(20)
         }
+    }
+
+    /**
+     * Owner's button in Setup › Tools: sets how long the adapter stays awake after the last thing the box
+     * said to it (STN `STSLUIT`; factory 600 s). Stored in the adapter. Adapter-only, nothing reaches the
+     * car. The adapter answers "OK" or "?" (value not accepted: nothing changes). Then the setting is read
+     * back (`STSLCS`) and the adapter reset (`ATZ`) so it applies.
+     */
+    private fun setAdapterTimer(c: ElmConnection, seconds: Int) {
+        val label = if (seconds == 600) "10 minutes" else "$seconds seconds"
+        val reply = runCatching { c.send("STSLUIT$seconds", 2_000) }.getOrElse { "(${it.message})" }.trim()
+        AppLog.info(TAG, "Adapter sleep timer → $label: STSLUIT$seconds → ${reply.replace("\r", " ")}")
+        if ("OK" !in reply) {
+            _adapterTimer.value = "The adapter didn't accept it (it answered \"${reply.replace("\r", " ").ifBlank { "nothing" }}\"). Nothing changed."
+            return
+        }
+        val summary = runCatching { c.sendAll("STSLCS") }.getOrDefault("")
+        AppLog.info(TAG, "Adapter sleep settings now: ${summary.replace("\r", " | ")}")
+        val line = summary.split("\r").map { it.trim() }.firstOrNull { it.startsWith("UART SLEEP") }
+        _adapterTimer.value = "Done: the adapter now sleeps $label after the box goes quiet." +
+            (line?.let { " (It reports: $it.)" } ?: "")
+        runCatching { c.send("ATZ", 3_000) }
+        AppLog.info(TAG, "Adapter reset so the new timer applies; reconnecting")
+        throw java.io.IOException("adapter reset after changing its sleep timer")
     }
 
     /** The adapter's measurement of the 12 V supply at the OBD port ("ATRV" → "12.6V"). Adapter-only. */
@@ -636,6 +659,8 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshDiscovery() = ObdEngine.refreshDiscovery()
     fun requestDiscovery(r: Discovery.Request) = ObdEngine.requestDiscovery(r)
     fun cancelDiscovery() = ObdEngine.cancelDiscovery()
+    val adapterTimer: StateFlow<String?> get() = ObdEngine.adapterTimer
+    fun requestAdapterTimer(seconds: Int) = ObdEngine.requestAdapterTimer(seconds)
 
     companion object {
         const val STALE_MS = 5_000L

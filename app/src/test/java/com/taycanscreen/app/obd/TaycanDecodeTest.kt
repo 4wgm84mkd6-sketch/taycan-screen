@@ -188,11 +188,13 @@ class TaycanDecodeTest {
         assertTrue(ElmConnection.isAllowed("2208D2"))
         assertTrue(ElmConnection.isAllowed("1003"))
         assertTrue(ElmConnection.isAllowed("ATFCSD300000"))
-        assertFalse(ElmConnection.isAllowed("STSLCS"))  // adapter sleep settings: read once in build 185–194, not sent any more
+        assertTrue(ElmConnection.isAllowed("STSLCS"))   // print the adapter's sleep settings (read-only)
+        assertTrue(ElmConnection.isAllowed("STSLUIT30")) // owner's button: adapter sleeps 30 s after the box goes quiet
+        assertTrue(ElmConnection.isAllowed("STSLUIT600"))// owner's button: back to the factory 10 minutes
+        assertFalse(ElmConnection.isAllowed("STSLUIT5"))
         assertFalse(ElmConnection.isAllowed("STSLU"))   // changing them is not allowed
         assertTrue(ElmConnection.isAllowed("STSLEEP"))   // "sleep now": adapter only, changes no setting
         assertTrue(ElmConnection.isAllowed("ATLP"))
-        assertFalse(ElmConnection.isAllowed("STSLUIT30")) // changing the stored sleep settings is not allowed
         assertFalse(ElmConnection.isAllowed("STSLVG"))
         assertFalse(ElmConnection.isAllowed("1101"))    // ECU reset
         assertFalse(ElmConnection.isAllowed("1002"))    // programming session

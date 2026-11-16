@@ -30,6 +30,8 @@ class ElmConnection private constructor(
             Regex("^AT[A-Z0-9]*$"),      // adapter configuration
             Regex("^STI$"),              // STN firmware id
             Regex("^STSLEEP$"),          // adapter: go to sleep now (when ATLP isn't accepted); changes no setting
+            Regex("^STSLCS$"),           // adapter: print its sleep settings (read-only)
+            Regex("^STSLUIT(30|600)$"),  // adapter: sleep timer 30 s or back to the factory 10 min (owner's button, Setup › Tools)
             Regex("^1003$"),             // extended diagnostic session (read access)
             Regex("^22[0-9A-F]{4}$"),    // read data by identifier
         )
@@ -96,6 +98,40 @@ class ElmConnection private constructor(
         }
         AppLog.rx(TAG, reply + ">")
         return reply
+    }
+
+    /**
+     * Sends a command whose reply may itself contain '>' (STSLCS prints "VL WAKE: OFF, >13.20V"): reads
+     * until a prompt has arrived and nothing more for [quietMs], at most [maxMs]. Logged like [send].
+     */
+    fun sendAll(cmd: String, quietMs: Long = 400, maxMs: Long = 3_000): String {
+        val c = cmd.uppercase().replace(" ", "")
+        if (!isAllowed(c)) {
+            AppLog.error(TAG, "BLOCKED non-allowlisted command '$c'")
+            throw IllegalArgumentException("Blocked command $c")
+        }
+        while (input.available() > 0) input.read(ByteArray(input.available()))
+        AppLog.tx(TAG, "$c\r")
+        output.write("$c\r".toByteArray(Charsets.ISO_8859_1))
+        output.flush()
+        val sb = StringBuilder()
+        val buf = ByteArray(256)
+        val end = com.taycanscreen.app.util.Mono.ms() + maxMs
+        var lastByteAt = com.taycanscreen.app.util.Mono.ms()
+        while (com.taycanscreen.app.util.Mono.ms() < end) {
+            val avail = input.available()
+            if (avail > 0) {
+                val n = input.read(buf, 0, minOf(avail, buf.size))
+                if (n < 0) throw IOException("Adapter closed the connection")
+                sb.append(String(buf, 0, n, Charsets.ISO_8859_1))
+                lastByteAt = com.taycanscreen.app.util.Mono.ms()
+            } else {
+                if ('>' in sb && com.taycanscreen.app.util.Mono.ms() - lastByteAt >= quietMs) break
+                Thread.sleep(10)
+            }
+        }
+        AppLog.rx(TAG, sb.toString())
+        return sb.toString().trimEnd('>', '\r', '\n', ' ')
     }
 
     /** No '>' prompt in time; [partial] is what arrived before giving up. */

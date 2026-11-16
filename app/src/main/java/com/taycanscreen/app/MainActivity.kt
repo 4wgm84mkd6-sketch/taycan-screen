@@ -355,6 +355,7 @@ private fun MainScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    AdapterTimerPanel(obd)
                     DiscoveryPanel(obd)
                     BigButton("Share log", onClick = onShareLog)
                     ScreenPanel(readWindow, contentW, contentH, fullScreen, onToggleFullScreen)
@@ -464,6 +465,30 @@ private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
             contentColor = if (selected) Color.Black else Palette.Text,
         ),
     ) { Text(label, fontSize = 22.sp, fontWeight = FontWeight.SemiBold) }
+}
+
+/**
+ * Owner's buttons (2026-11-16) for the adapter's own sleep timer. Left plugged in, the adapter sets off the
+ * car's alarm when it is awake in the locked car; it stays awake 10 minutes after the box last talked to
+ * it. 30 s makes it sleep soon after the box loses power. Stored in the adapter; the second button puts
+ * the factory 10 minutes back.
+ */
+@Composable
+private fun AdapterTimerPanel(obd: ObdViewModel) {
+    val result by obd.adapterTimer.collectAsState()
+    val link by obd.status.collectAsState()
+    val live = link.state == LinkState.Live
+    Panel {
+        Text("Adapter sleep timer", color = Palette.TextDim, fontSize = 16.sp)
+        StatusText(
+            "How long the OBD adapter stays awake after the box stops talking to it. Awake in a locked car, " +
+                "it sets off the alarm. Factory setting: 10 minutes. Saved in the adapter. Do this with the car switched on.",
+        )
+        if (!live && result == null) StatusText("Waiting for the car connection (switch the car on)…", Palette.Warn)
+        result?.let { StatusText(it, if (it.startsWith("Done")) Palette.Accent else if (it.startsWith("Waiting")) Palette.TextDim else Palette.Warn) }
+        BigButton("Sleep after 30 seconds", enabled = live) { obd.requestAdapterTimer(30) }
+        BigButton("Back to 10 minutes", enabled = live) { obd.requestAdapterTimer(600) }
+    }
 }
 
 @Composable
