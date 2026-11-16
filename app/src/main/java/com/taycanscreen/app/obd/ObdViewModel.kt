@@ -329,6 +329,34 @@ object ObdEngine {
         val lastSessionAt = HashMap<String, Long>()
         var quietCycles = 0
         var offProbes = 0
+        var adapterAsleep = false
+
+        /**
+         * Tells the adapter to go to sleep now (adapter-only command; no stored setting changes). The
+         * owner's alarm goes off within minutes of locking while the adapter is awake; left alone it
+         * stays awake 10 minutes after the box last talked to it. So whenever the app sees the car is off,
+         * the last thing it sends is "sleep". The adapter wakes again on the app's next command.
+         */
+        fun sleepAdapter(why: String) {
+            var reply = runCatching { c.send("ATLP", 1500) }.getOrDefault("(no reply)")
+            var cmd = "ATLP"
+            if ("?" in reply) {
+                cmd = "STSLEEP"
+                reply = runCatching { c.send("STSLEEP", 1500) }.getOrDefault("(no reply)")
+            }
+            AppLog.info(TAG, "Adapter told to sleep ($why): $cmd → ${reply.trim().replace("\r", " ").ifBlank { "(nothing)" }}")
+            adapterAsleep = true
+        }
+
+        /** Wakes the adapter after [sleepAdapter] and sets it up again (it may have reset its settings). */
+        fun wakeAdapter() {
+            if (!adapterAsleep) return
+            adapterAsleep = false
+            runCatching { c.send("ATI", 1500) } // the first characters after sleep may only wake it
+            initAdapter(c)
+            header = null
+            customFlowControl = true
+        }
 
         /** Points the adapter at a module (header, reply filter, flow control). False if it didn't take. */
         fun pointAt(cmd: ObdCommand): Boolean {
@@ -359,8 +387,10 @@ object ObdEngine {
         if (ghostStart && sinceStart < GHOST_HOLD_MS) {
             AppLog.info(TAG, "This looks like the box's short restart after parking: asking the car nothing for ${(GHOST_HOLD_MS - sinceStart) / 1000} s")
             _status.value = _status.value.copy(state = LinkState.CarAsleep, detail = "Just parked: waiting before asking the car anything.")
+            sleepAdapter("just parked")
             delay(GHOST_HOLD_MS - sinceStart)
-            _status.value = _status.value.copy(state = LinkState.Live, detail = "Reading the car")
+            // Then check like a switched-off car: one read now and then, the adapter asleep in between.
+            quietCycles = QUIET_CYCLES_TO_SLEEP
         }
 
         while (currentCoroutineContext().isActive) {
@@ -369,11 +399,13 @@ object ObdEngine {
                 // the car coming on; the 12 V readout comes from the adapter itself.
                 delay(if (offProbes < OFF_FAST_PROBES) OFF_PROBE_FAST_MS else OFF_PROBE_SLOW_MS)
                 offProbes++
-                if (offProbes % 6 == 1) adapterVolts(c)
+                wakeAdapter() // reads the 12 V too
                 val probe = Taycan.SPEED_DIR
-                if (!pointAt(probe.command)) continue
+                if (!pointAt(probe.command)) { sleepAdapter("car still off"); continue }
                 val r = request(c, probe.command)
-                if (r is IsoTp.Result.Payload && r.bytes.firstOrNull() == 0x62.toByte()) {
+                if (!(r is IsoTp.Result.Payload && r.bytes.firstOrNull() == 0x62.toByte())) {
+                    sleepAdapter("car still off")
+                } else {
                     AppLog.info(TAG, "The drive unit answers again: the car is on, reading everything")
                     record(probe, r)
                     quietCycles = 0
@@ -449,6 +481,7 @@ object ObdEngine {
             } else if (++quietCycles == QUIET_CYCLES_TO_SLEEP) {
                 AppLog.info(TAG, "The drive unit isn't answering: the car is switched off. Asking nothing else until it is on.")
                 offProbes = 0
+                sleepAdapter("car switched off")
                 _readings.value = emptyMap()
                 _status.value = _status.value.copy(
                     state = LinkState.CarAsleep,
