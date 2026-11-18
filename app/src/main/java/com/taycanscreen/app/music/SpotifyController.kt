@@ -98,6 +98,21 @@ object SpotifyController {
         appContext = context.applicationContext
         connect(showAuth = true)
         if (first) {
+            // Which Spotify is on the box and when it last changed: on 17 Nov it stopped handing its audio
+            // to the equalizer (no session broadcast) between 07:05 and 14:18, probably a Spotify update.
+            runCatching {
+                val pm = appContext.packageManager
+                val info = pm.getPackageInfo("com.spotify.music", 0)
+                val installer = runCatching {
+                    if (android.os.Build.VERSION.SDK_INT >= 30) pm.getInstallSourceInfo("com.spotify.music").installingPackageName
+                    else @Suppress("DEPRECATION") pm.getInstallerPackageName("com.spotify.music")
+                }.getOrNull()
+                AppLog.info(
+                    TAG,
+                    "Spotify on the box: version ${info.versionName}, last updated ${java.time.Instant.ofEpochMilli(info.lastUpdateTime)}, " +
+                        "installed by ${installer ?: "unknown"}",
+                )
+            }
             // The box starts with a wrong date and Spotify can't sign in until it is corrected (in the
             // car it connected 20–30 s after the correction). Try again the moment the clock is set.
             runCatching {
