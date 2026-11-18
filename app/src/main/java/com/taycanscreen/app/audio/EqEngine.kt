@@ -94,6 +94,15 @@ object EqEngine {
         if (::app.isInitialized) return
         app = context.applicationContext
         load()
+        // What the box itself offers for sound processing (owner asked whether the box has a global EQ):
+        // the effect engines Android has, and any app that answers the system "equalizer" request.
+        runCatching {
+            val fx = AudioEffect.queryEffects().orEmpty().joinToString { "${it.name} (${it.implementor})" }
+            val panel = app.packageManager.queryIntentActivities(
+                android.content.Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL), 0,
+            ).joinToString { it.activityInfo.packageName }
+            AppLog.info(TAG, "Box sound effects available: ${fx.ifBlank { "none" }}; system equalizer screen: ${panel.ifBlank { "none" }}")
+        }
         val filter = IntentFilter().apply {
             addAction(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION)
             addAction(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION)
