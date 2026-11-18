@@ -153,6 +153,25 @@ object ObdEngine {
     @Volatile private var sleptByApp = false
     /** Owner's request from Setup › Tools: the adapter's own sleep timer in seconds (30 or 600). */
     @Volatile private var timerRequest: Int? = null
+    private val _adapterTimerNow = MutableStateFlow<String?>(null)
+    /** The adapter's sleep timer as it reported it at the last connect, e.g. "10 minutes" or "30 seconds". */
+    val adapterTimerNow: StateFlow<String?> = _adapterTimerNow.asStateFlow()
+
+    /** Reads the adapter's sleep settings (STSLCS, adapter-only) and logs the UART-sleep line. */
+    private fun readAdapterTimer(c: ElmConnection) {
+        val summary = runCatching { c.sendAll("STSLCS") }.getOrNull() ?: return
+        val line = summary.split("\r").map { it.trim() }.firstOrNull { it.startsWith("UART SLEEP") } ?: return
+        val secs = Regex("""(\d+)\s*s""").find(line)?.groupValues?.get(1)?.toIntOrNull()
+        val text = when {
+            "OFF" in line.substringAfter(":").substringBefore(",") -> "never (sleep timer off)"
+            secs == null -> line
+            secs % 60 == 0 && secs >= 120 -> "${secs / 60} minutes"
+            else -> "$secs seconds"
+        }
+        if (_adapterTimerNow.value != text) AppLog.info(TAG, "Adapter sleep timer: $text ($line)")
+        _adapterTimerNow.value = text
+    }
+
     private val _adapterTimer = MutableStateFlow<String?>(null)
     /** Result of the last adapter sleep-timer request, in plain words (Setup › Tools). */
     val adapterTimer: StateFlow<String?> = _adapterTimer.asStateFlow()
@@ -339,6 +358,7 @@ object ObdEngine {
         c.send("ATST64")           // reply timeout 0x64 x 4 ms = 400 ms
         c.send("ATI")              // log adapter id
         c.send("STI")              // log STN firmware id
+        readAdapterTimer(c)        // adapter-only: its own sleep timer, shown in Setup › Tools
         recordVolts(c.send("ATRV")) // 12 V at the OBD port (adapter measurement)
     }
 
@@ -660,6 +680,7 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
     fun requestDiscovery(r: Discovery.Request) = ObdEngine.requestDiscovery(r)
     fun cancelDiscovery() = ObdEngine.cancelDiscovery()
     val adapterTimer: StateFlow<String?> get() = ObdEngine.adapterTimer
+    val adapterTimerNow: StateFlow<String?> get() = ObdEngine.adapterTimerNow
     fun requestAdapterTimer(seconds: Int) = ObdEngine.requestAdapterTimer(seconds)
 
     companion object {

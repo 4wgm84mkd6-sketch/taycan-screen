@@ -476,6 +476,7 @@ private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun AdapterTimerPanel(obd: ObdViewModel) {
     val result by obd.adapterTimer.collectAsState()
+    val now by obd.adapterTimerNow.collectAsState()
     val link by obd.status.collectAsState()
     val live = link.state == LinkState.Live
     Panel {
@@ -484,6 +485,7 @@ private fun AdapterTimerPanel(obd: ObdViewModel) {
             "How long the OBD adapter stays awake after the box stops talking to it. Awake in a locked car, " +
                 "it sets off the alarm. Factory setting: 10 minutes. Saved in the adapter. Do this with the car switched on.",
         )
+        now?.let { StatusText("Right now the adapter sleeps after: $it", if (it.startsWith("30")) Palette.Accent else Palette.Text) }
         if (!live && result == null) StatusText("Waiting for the car connection (switch the car on)…", Palette.Warn)
         result?.let { StatusText(it, if (it.startsWith("Done")) Palette.Accent else if (it.startsWith("Waiting")) Palette.TextDim else Palette.Warn) }
         BigButton("Sleep after 30 seconds", enabled = live) { obd.requestAdapterTimer(30) }
