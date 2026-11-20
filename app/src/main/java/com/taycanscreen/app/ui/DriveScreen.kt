@@ -392,7 +392,9 @@ private fun DriveContent(
                 AudioPanel(c, onClose = { panel = null }, modifier = Modifier.fillMaxSize().then(wrap))
             }
         }
-        val onNavigate = { saveAs = null; panel = if (panel == "search") null else "search" }
+        // The arrow shows the map: it closes whatever module is open (owner, 2026-11-20: "it should just
+        // show the background map, not the search function"). Search is the box on the map.
+        val onNavigate = { saveAs = null; panel = null }
         val onDockMusic = { panel = if (panel == "music") null else "music" }
         val onDockAudio = { panel = if (panel == "audio") null else "audio" }
         val onDockLedger = { panel = if (panel == "ledger") null else "ledger" }
@@ -441,6 +443,15 @@ private fun DriveContent(
                 // speed card and above the dock. The Classic panel never appears here.
                 val open = panel != null
                 mapArea(Modifier.fillMaxSize(), true, chrome && !open, if (open) 396.dp else 460.dp)
+                // With a module open, a tap on the map around it closes the module and shows the map
+                // (owner, 2026-11-20). The speed card, dock and the module itself sit above and keep their taps.
+                if (open) {
+                    Box(
+                        Modifier.fillMaxSize().pointerInput(Unit) {
+                            detectTapGestures { saveAs = null; panel = null; AppLog.info("ui", "Map tapped: module closed") }
+                        },
+                    )
+                }
                 QuietOverlays(
                     v, c, now, status, carOk, limit, worstTire(readings, now), readings, chrome, themeMode, panel, targets,
                     onLedger = { tab -> ledgerTab = tab; panel = "ledger" },
@@ -449,7 +460,12 @@ private fun DriveContent(
                     onCycleTheme = onCycleTheme, onOpenSetup = onOpenSetup,
                 )
                 Box(Modifier.fillMaxSize().padding(start = 436.dp, top = 16.dp, end = 16.dp, bottom = 152.dp)) {
-                    panels(Modifier.clip(CardShape).border(1.dp, c.border, CardShape))
+                    // The empty pointer handler makes the whole card a touch target, so a tap on a blank
+                    // part of a module stays in the module instead of reaching the map's "close" tap below.
+                    panels(
+                        Modifier.clip(CardShape).border(1.dp, c.border, CardShape)
+                            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+                    )
                 }
             }
         }
@@ -900,7 +916,7 @@ private fun DockIcons(
 ) {
     val eq by com.taycanscreen.app.audio.EqEngine.status.collectAsState()
     val playing = SpotifyController.nowPlaying.collectAsState().value?.paused == false
-    DockIcon(FIcons.Navigate, if (panel == "search") "Close destination search" else "Search for a destination", panel == null || panel == "search", c, onClick = onNavigate)
+    DockIcon(FIcons.Navigate, "Map", panel == null, c, onClick = onNavigate)
     DockIcon(FIcons.Music, "Music", panel == "music", c, onClick = onOpenMusic)
     // Amber corner light only when something is wrong: music is playing and the EQ isn't on it.
     // (It used to stay amber whenever nothing was playing, which looked like a fault.)

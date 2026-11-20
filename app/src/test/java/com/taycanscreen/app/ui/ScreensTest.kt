@@ -5,7 +5,15 @@ import android.content.ComponentName
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import org.junit.Assert.assertEquals
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -229,4 +237,54 @@ class ScreensTest {
     @Test fun audio() = shoot("08-audio", panel = "audio")
 
     @Test fun ledger() = shoot("09-ledger", panel = "ledger")
+
+    // Touch behaviour (owner, 2026-11-20): the dock's arrow and a tap on the map show the map, never search.
+    private fun soundOpen() = rule.onAllNodesWithText("Sound").fetchSemanticsNodes().size
+
+    private fun openSound(quietLayout: Boolean) {
+        UiEvents.quiet.value = quietLayout
+        UiEvents.openPanel.value = "audio"
+        rule.mainClock.autoAdvance = false
+        rule.setContent { Drive(true) }
+        rule.mainClock.advanceTimeBy(700)
+        assertEquals(1, soundOpen())
+    }
+
+    @Test fun arrowShowsTheMapInQuiet() {
+        try {
+            openSound(true)
+            rule.onNodeWithContentDescription("Map").performClick()
+            rule.mainClock.advanceTimeBy(700)
+            assertEquals(0, soundOpen())
+            // Pressing it again with nothing open keeps the map: search doesn't open.
+            rule.onNodeWithContentDescription("Map").performClick()
+            rule.mainClock.advanceTimeBy(700)
+            assertEquals(0, rule.onAllNodesWithText("space").fetchSemanticsNodes().size + soundOpen())
+        } finally {
+            UiEvents.quiet.value = false
+        }
+    }
+
+    @Test fun arrowShowsTheMapInClassic() {
+        openSound(false)
+        rule.onNodeWithContentDescription("Map").performClick()
+        rule.mainClock.advanceTimeBy(700)
+        assertEquals(0, soundOpen())
+    }
+
+    @Test fun mapTapClosesTheModuleInQuiet() {
+        try {
+            openSound(true)
+            // A tap on a blank part of the module keeps it open.
+            rule.onNodeWithText("Sound").performClick()
+            rule.mainClock.advanceTimeBy(700)
+            assertEquals(1, soundOpen())
+            // A tap on the map to the right of the dock (below the module) closes it.
+            rule.onRoot().performTouchInput { click(Offset(width * 0.85f, height * 0.88f)) }
+            rule.mainClock.advanceTimeBy(700)
+            assertEquals(0, soundOpen())
+        } finally {
+            UiEvents.quiet.value = false
+        }
+    }
 }
