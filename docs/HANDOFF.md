@@ -373,3 +373,4 @@ I work entirely from my iPhone. You can't reach the box directly, so:
     - The app logs "Adapter wakes on 12 V changes: yes/no" at every connect.
   - If the STN rejects the space-less form, the result line says so and nothing changes.
   - If alarms continue with both settings, the adapter's presence is the cause: switched OBD cable.
+- 2026-11-21: Owner: "the test has begun" (build 223, adapter left plugged in; voltage-wake button presumably pressed, not yet confirmed by a log). Next: alarm list and log in 2–3 days; check for "Adapter wake on 12 V changes → off: STSLVG OFF → OK" and "Adapter wakes on 12 V changes: no".
