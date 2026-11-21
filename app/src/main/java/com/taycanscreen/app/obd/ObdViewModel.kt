@@ -153,6 +153,11 @@ object ObdEngine {
     @Volatile private var sleptByApp = false
     /** Owner's request from Setup › Tools: the adapter's own sleep timer in seconds (30 or 600). */
     @Volatile private var timerRequest: Int? = null
+    /** Owner's request from Setup › Tools: wake the adapter on 12 V changes (true) or not (false). */
+    @Volatile private var voltageWakeRequest: Boolean? = null
+    private val _voltageWakeNow = MutableStateFlow<String?>(null)
+    /** The adapter's "wake on 12 V changes" line as it reported it at the last connect, in plain words. */
+    val voltageWakeNow: StateFlow<String?> = _voltageWakeNow.asStateFlow()
     private val _adapterTimerNow = MutableStateFlow<String?>(null)
     /** The adapter's sleep timer as it reported it at the last connect, e.g. "10 minutes" or "30 seconds". */
     val adapterTimerNow: StateFlow<String?> = _adapterTimerNow.asStateFlow()
@@ -170,6 +175,25 @@ object ObdEngine {
         }
         if (_adapterTimerNow.value != text) AppLog.info(TAG, "Adapter sleep timer: $text ($line)")
         _adapterTimerNow.value = text
+        val vchg = summary.split("\r").map { it.trim() }.firstOrNull { it.startsWith("VCHG WAKE") }
+        val vText = vchg?.let { voltageWakeText(it) }
+        if (vText != null && _voltageWakeNow.value != vText) AppLog.info(TAG, "Adapter wakes on 12 V changes: $vText ($vchg)")
+        _voltageWakeNow.value = vText
+    }
+
+    /** "VCHG WAKE: ON, 0.20V IN 1000 ms" → "yes"; "VCHG WAKE: OFF…" → "no". */
+    private fun voltageWakeText(line: String): String {
+        val state = line.substringAfter(":").substringBefore(",").trim()
+        return when {
+            state.startsWith("OFF") -> "no"
+            state.startsWith("ON") -> "yes"
+            else -> line
+        }
+    }
+
+    fun requestVoltageWake(on: Boolean) {
+        voltageWakeRequest = on
+        _adapterTimer.value = "Waiting for the car connection…"
     }
 
     private val _adapterTimer = MutableStateFlow<String?>(null)
@@ -439,6 +463,11 @@ object ObdEngine {
                 timerRequest = null
                 setAdapterTimer(c, timer) // ends with a reset of the adapter, so reconnect afterwards
             }
+            val wake = voltageWakeRequest
+            if (wake != null) {
+                voltageWakeRequest = null
+                setVoltageWake(c, wake) // ends with a reset of the adapter, so reconnect afterwards
+            }
             val req = discoveryRequest
             if (req != null) {
                 discoveryRequest = null
@@ -535,6 +564,32 @@ object ObdEngine {
         runCatching { c.send("ATZ", 3_000) }
         AppLog.info(TAG, "Adapter reset so the new timer applies; reconnecting")
         throw java.io.IOException("adapter reset after changing its sleep timer")
+    }
+
+    /**
+     * Owner's button in Setup › Tools: whether the adapter wakes itself when the 12 V supply changes
+     * (STN `STSLVG on|off`; this adapter came with it on, 0.2 V in 1 s). Off, it wakes only when the box
+     * connects to it by Bluetooth, which the box always does when it starts. Stored in the adapter.
+     * Adapter-only, nothing reaches the car. Read back with `STSLCS`, then the adapter is reset (`ATZ`).
+     */
+    private fun setVoltageWake(c: ElmConnection, on: Boolean) {
+        val cmd = if (on) "STSLVG ON" else "STSLVG OFF"
+        val reply = runCatching { c.send(cmd, 2_000) }.getOrElse { "(${it.message})" }.trim()
+        AppLog.info(TAG, "Adapter wake on 12 V changes → ${if (on) "on" else "off"}: $cmd → ${reply.replace("\r", " ")}")
+        if ("OK" !in reply) {
+            _adapterTimer.value = "The adapter didn't accept it (it answered \"${reply.replace("\r", " ").ifBlank { "nothing" }}\"). Nothing changed."
+            return
+        }
+        val summary = runCatching { c.sendAll("STSLCS") }.getOrDefault("")
+        AppLog.info(TAG, "Adapter sleep settings now: ${summary.replace("\r", " | ")}")
+        val line = summary.split("\r").map { it.trim() }.firstOrNull { it.startsWith("VCHG WAKE") }
+        line?.let { _voltageWakeNow.value = voltageWakeText(it) }
+        _adapterTimer.value = (if (on) "Done: the adapter wakes on 12 V changes again (factory setting)." else
+            "Done: the adapter no longer wakes on 12 V changes; only when the box connects.") +
+            (line?.let { " (It reports: $it.)" } ?: "")
+        runCatching { c.send("ATZ", 3_000) }
+        AppLog.info(TAG, "Adapter reset so the new setting applies; reconnecting")
+        throw java.io.IOException("adapter reset after changing its wake setting")
     }
 
     /** The adapter's measurement of the 12 V supply at the OBD port ("ATRV" → "12.6V"). Adapter-only. */
@@ -682,6 +737,8 @@ class ObdViewModel(app: Application) : AndroidViewModel(app) {
     val adapterTimer: StateFlow<String?> get() = ObdEngine.adapterTimer
     val adapterTimerNow: StateFlow<String?> get() = ObdEngine.adapterTimerNow
     fun requestAdapterTimer(seconds: Int) = ObdEngine.requestAdapterTimer(seconds)
+    val voltageWakeNow: StateFlow<String?> get() = ObdEngine.voltageWakeNow
+    fun requestVoltageWake(on: Boolean) = ObdEngine.requestVoltageWake(on)
 
     companion object {
         const val STALE_MS = 5_000L

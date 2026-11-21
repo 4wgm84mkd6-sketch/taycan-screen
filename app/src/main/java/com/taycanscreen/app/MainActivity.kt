@@ -477,6 +477,7 @@ private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun AdapterTimerPanel(obd: ObdViewModel) {
     val result by obd.adapterTimer.collectAsState()
     val now by obd.adapterTimerNow.collectAsState()
+    val wake by obd.voltageWakeNow.collectAsState()
     val link by obd.status.collectAsState()
     val live = link.state == LinkState.Live
     Panel {
@@ -490,6 +491,17 @@ private fun AdapterTimerPanel(obd: ObdViewModel) {
         result?.let { StatusText(it, if (it.startsWith("Done")) Palette.Accent else if (it.startsWith("Waiting")) Palette.TextDim else Palette.Warn) }
         BigButton("Sleep after 30 seconds", enabled = live) { obd.requestAdapterTimer(30) }
         BigButton("Back to 10 minutes", enabled = live) { obd.requestAdapterTimer(600) }
+        // Second suspect for the alarm (2026-11-21): the adapter wakes itself whenever the car's 12 V
+        // supply changes, which happens after the car is locked. The box doesn't need that: it wakes
+        // the adapter over Bluetooth when it starts.
+        Text("Wake on 12 V changes", color = Palette.TextDim, fontSize = 16.sp)
+        StatusText(
+            "The adapter also wakes itself whenever the car's 12 V supply changes, which happens after you lock " +
+                "the car. The box doesn't need this: it wakes the adapter itself when it starts. Saved in the adapter.",
+        )
+        wake?.let { StatusText("Right now the adapter wakes on 12 V changes: $it", if (it == "no") Palette.Accent else Palette.Text) }
+        BigButton("Stop waking on 12 V changes", enabled = live) { obd.requestVoltageWake(false) }
+        BigButton("Wake on 12 V changes again", enabled = live) { obd.requestVoltageWake(true) }
     }
 }
 

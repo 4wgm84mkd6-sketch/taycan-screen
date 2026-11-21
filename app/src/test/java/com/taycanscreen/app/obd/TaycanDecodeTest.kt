@@ -196,6 +196,10 @@ class TaycanDecodeTest {
         assertTrue(ElmConnection.isAllowed("STSLEEP"))   // "sleep now": adapter only, changes no setting
         assertTrue(ElmConnection.isAllowed("ATLP"))
         assertFalse(ElmConnection.isAllowed("STSLVG"))
+        assertTrue(ElmConnection.isAllowed("STSLVGOFF")) // owner's button: no wake on 12 V changes
+        assertTrue(ElmConnection.isAllowed("STSLVGON"))  // owner's button: back to how it came
+        assertFalse(ElmConnection.isAllowed("STSLVGW0.1,100")) // wake thresholds: not allowed
+        assertFalse(ElmConnection.isAllowed("STSLVL"))
         assertFalse(ElmConnection.isAllowed("1101"))    // ECU reset
         assertFalse(ElmConnection.isAllowed("1002"))    // programming session
         assertFalse(ElmConnection.isAllowed("2E0101"))  // write data

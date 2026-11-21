@@ -32,6 +32,7 @@ class ElmConnection private constructor(
             Regex("^STSLEEP$"),          // adapter: go to sleep now (when ATLP isn't accepted); changes no setting
             Regex("^STSLCS$"),           // adapter: print its sleep settings (read-only)
             Regex("^STSLUIT(30|600)$"),  // adapter: sleep timer 30 s or back to the factory 10 min (owner's button, Setup › Tools)
+            Regex("^STSLVG(ON|OFF)$"),   // adapter: wake on 12 V changes on/off (owner's button, Setup › Tools)
             Regex("^1003$"),             // extended diagnostic session (read access)
             Regex("^22[0-9A-F]{4}$"),    // read data by identifier
         )
