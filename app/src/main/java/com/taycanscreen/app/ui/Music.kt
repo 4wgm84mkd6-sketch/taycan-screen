@@ -185,6 +185,8 @@ fun MusicPanel(
                     Tab("BROWSE", view == "browse", c) { view = "browse" }
                     SquareButton(FIcons.Search, "Search Spotify", c) { typing = true; view = "browse" }
                 }
+                // Spotify's own app, always one tap away (owner, 2026-11-21).
+                SquareButton(FIcons.OpenApp, "Open the Spotify app", c, onClick = onOpenSpotifyApp)
             }
             SquareButton(FIcons.Close, if (typing) "Close search" else "Close music", c) { if (typing) typing = false else onClose() }
         }
