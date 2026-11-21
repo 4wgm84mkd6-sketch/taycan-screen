@@ -360,3 +360,16 @@ I work entirely from my iPhone. You can't reach the box directly, so:
   - 251 (21:10) and 253 (21 Nov 07:10): adapter unplugged again.
   - Can't place the 8:24 AM alarm without session 245; asked the owner to send again and say when they plugged the adapter back in.
   - Design note: with the car off and the box on, the app wakes the adapter every ~14 s (sleep, 10 s wait, reconnect) and sends one `22 115B` to 7E0 each time. That's CAN traffic into a parked car. If 245 places an alarm on such a boot, back off the reconnect, or check car-awake without transmitting.
+- 2026-11-21: Second upload `2026-11-21/071545-build219` (re-sent 239, 240, 244, 253; 245 still not uploaded). **Session 244 placed the 20 Nov 8:24 AM alarm:**
+  - The owner plugged the adapter in at 07:02 while driving.
+  - They sat parked in P with the car on 07:10–08:02, then drove downtown. The box lost power at the switch-off at **08:09:54**.
+  - Sleep timer 30 s, so the adapter should have slept by ~08:10:25. **Alarm 14.5 min later: the 30 s timer alone does not stop the alarms.**
+  - 246 (a parked box start, adapter woken by the app, two `22 115B` sent) could have been just before or just after 8:24; its clock is unknown.
+- 2026-11-21: Remaining adapter-side suspect: **wake on 12 V changes** (`VCHG WAKE: ON, 0.20V IN 1000 ms`, factory on this MX+). The car's 12 V changes after locking (DC-DC on/off), which wakes the adapter.
+  - The STN reference (OBDLink FRPM, found by search; the manual hosts are still blocked from this session) gives `STSLVG on|off` (chip default off) and `STSLVGW` for the threshold.
+  - The box never needs voltage wake: it wakes the adapter over Bluetooth (UART wake) at every start, proven by the wake banner after the app's `STSLEEP`.
+  - **Build 223** (`main` 3a2d084; work-branch run 122 green incl. screen pictures; main run 123 build, tests, signature and release succeeded):
+    - Setup › Tools has "Stop waking on 12 V changes" / "Wake on 12 V changes again" (`STSLVGOFF` / `STSLVGON`, allowlisted adapter-only, then `STSLCS` read-back and `ATZ`).
+    - The app logs "Adapter wakes on 12 V changes: yes/no" at every connect.
+  - If the STN rejects the space-less form, the result line says so and nothing changes.
+  - If alarms continue with both settings, the adapter's presence is the cause: switched OBD cable.
