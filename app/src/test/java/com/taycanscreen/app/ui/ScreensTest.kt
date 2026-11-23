@@ -134,6 +134,17 @@ class ScreensTest {
         shoot("04-connecting")
     }
 
+    // No car data (adapter unplugged): the speed comes from GPS and is marked "GPS" (owner, 2026-11-23).
+    private fun gpsOnly(block: () -> Unit) {
+        ObdEngine.preview(emptyMap(), ObdStatus(LinkState.Connecting, "Connecting…", downSince = Mono.ms()))
+        GpsSpeed.previewMph = 31.4
+        try { block() } finally { GpsSpeed.previewMph = null }
+    }
+
+    @Test fun gpsSpeed() = gpsOnly { shoot("22-gps-speed") }
+
+    @Test fun quietGpsSpeed() = gpsOnly { quiet("23-quiet-gps-speed") }
+
     @Test fun parked() {
         ObdEngine.preview(driving(speedKmh = 0.0, gear = 5.0, amps = -3.0), live)
         SpeedLimit.preview(null)

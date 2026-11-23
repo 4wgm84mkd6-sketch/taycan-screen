@@ -64,6 +64,8 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   The Drive screen is drawn in design px (DriveScreen sets density so 1602×720 fits the window).
 - Owner requests that override the boards: full-height left panel, a large now-playing player, battery
   colours green → yellow → red, map size L/M/S and satellite.
+- Speed falls back to the box's GPS when the car's speed isn't available (owner, 2026-11-23), marked
+  "GPS" under the gear; a fix older than 3 s shows "—". The car's own speed always wins.
 - Second Drive layout, "Quiet" (owner, 2026-11-12, "Ship it" on the Taycan Quiet Dash board,
   `https://claude.ai/artifact/SVH3p9ATFpxHqa3dTptzFN`): map full screen; speed, next turn and arrival in
   the corners; map controls, search and the dock show while standing or for 8 s after a touch. Quiet

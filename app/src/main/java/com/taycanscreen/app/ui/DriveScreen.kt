@@ -112,6 +112,8 @@ private data class VehicleValues(
     val gear: String?,
     val mode: String?,
     val lowVolts: V?,
+    /** True when [speedMph] comes from the box's GPS because the car's speed isn't available. */
+    val speedFromGps: Boolean = false,
 ) {
     companion object {
         fun from(r: Map<String, Reading>, low: Reading?, now: Long): VehicleValues {
@@ -219,12 +221,17 @@ private fun DriveContent(
             delay(500)
         }
     }
-    val v = VehicleValues.from(readings, lowVolts, now)
+    val gps = remember { GpsInfo() }
+    // No speed from the car (adapter unplugged or not answering): the box's GPS speed, marked "GPS"
+    // (owner, 2026-11-23). The car's own speed always wins when it's there.
+    val v = VehicleValues.from(readings, lowVolts, now).let { car ->
+        if (car.speedMph != null) car
+        else GpsSpeed.mph(gps.fix)?.let { car.copy(speedMph = V(it, false), speedFromGps = true) } ?: car
+    }
     val context = LocalContext.current
     // Drive layout (Setup): Classic, or Quiet with the map filling the screen.
     remember { UiEvents.loadLayout(context); true }
     val quietLayout by UiEvents.quiet.collectAsState()
-    val gps = remember { GpsInfo() }
     val targets = remember { DriveTargets() }
     val carOk = readings.values.any { it.value != null }
     val spotifyOk = spotify.link == SpotifyController.Link.Connected
@@ -616,6 +623,7 @@ private fun SpeedSide(v: VehicleValues, limit: com.taycanscreen.app.car.SpeedLim
         else Box(Modifier.size(34.dp, 38.dp), contentAlignment = Alignment.Center) { Missing(c, 24.dp) }
         // Drive mode under the gear letter (Sport Plus reads as SPORT: the car reports both alike).
         if (v.mode != null) BasicText(v.mode, style = Filament.label(15.sp, modeColor, 0.1f))
+        else if (v.speedFromGps) BasicText("GPS", style = Filament.label(15.sp, c.textDim, 0.1f))
         else Box(Modifier.size(34.dp, 18.dp), contentAlignment = Alignment.Center) { Missing(c, 16.dp) }
         BasicText("MPH", Modifier.padding(bottom = 4.dp), style = Filament.label(15.sp, c.textDim, 0.1f))
     }
