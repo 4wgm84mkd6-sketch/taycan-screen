@@ -727,6 +727,8 @@ private data class LinkNote(val text: String, val warn: Boolean)
 private fun linkNote(s: com.taycanscreen.app.obd.ObdStatus, carOk: Boolean, now: Long): LinkNote? = when (s.state) {
     LinkState.Live -> if (carOk) null else LinkNote("WAITING FOR THE CAR…", false)
     LinkState.CarAsleep -> LinkNote("CAR OFF", false)
+    // The app leaves the adapter alone in a parked car (alarm); a touch or driving connects.
+    LinkState.WaitingForDriver -> LinkNote("TOUCH THE SCREEN TO CONNECT", false)
     // Bluetooth can't reach the adapter. The owner unplugs it (or will switch it off) when parked, because
     // left powered in a locked car it sets off the alarm (confirmed 2026-11-14), so after 30 s say the
     // likely reason in plain words. The app keeps trying and connects by itself once it's back.

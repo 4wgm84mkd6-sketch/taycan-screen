@@ -31,7 +31,7 @@ import kotlinx.coroutines.withContext
  */
 data class Reading(val value: Double?, val raw: String, val at: Long)
 
-enum class LinkState { Stopped, NeedsPermission, BluetoothOff, ChooseAdapter, Connecting, Initializing, Live, CarAsleep, Retrying }
+enum class LinkState { Stopped, NeedsPermission, BluetoothOff, ChooseAdapter, Connecting, Initializing, Live, CarAsleep, Retrying, WaitingForDriver }
 
 data class ObdStatus(
     val state: LinkState = LinkState.Stopped,
@@ -80,8 +80,43 @@ object ObdEngine {
         /** After the app put the adapter to sleep (which drops the Bluetooth link): wait this long before looking again. */
         private const val SLEEP_RECHECK_MS = 10_000L
         private const val GHOST_HOLD_MS = 15_000L
+        /**
+         * A touch or movement this recent still counts as someone in the car when the drive unit falls
+         * silent: the car may be starting up (its drive unit can take ~30 s to answer), so keep looking.
+         */
+        private const val PRESENCE_FRESH_MS = 90_000L
 
     private lateinit var app: Application
+
+    /*
+     * Presence gate (owner, 2026-11-22: "if the adapter tries to start up while the car is asleep, it will
+     * trigger the alarm"). The box also powers up in a parked, locked car (when the car wakes itself), and
+     * every such start used to wake the adapter and ask the drive unit; the 22 Nov 7:08 PM alarm came with
+     * both adapter-side fixes in place (30 s timer, no wake on 12 V changes) and two such starts after
+     * parking. So the app doesn't touch the adapter at all until someone is evidently in the car: the
+     * screen is touched, or the car moves (GPS). After the car is switched off the gate closes again.
+     */
+    @Volatile private var presenceAt = Long.MIN_VALUE
+    @Volatile private var gateClosedAt = Long.MIN_VALUE + 1
+    private val gateOpen get() = presenceAt > gateClosedAt
+
+    /** Someone is in the car: a touch on the screen ("touch") or the car moving ("moving"). */
+    fun notePresence(why: String) {
+        val wasOpen = gateOpen
+        presenceAt = Mono.ms()
+        if (!wasOpen) AppLog.info(TAG, "Someone's in the car ($why): the app may talk to the adapter")
+    }
+
+    /** Last time the drive unit answered (the car was on). */
+    @Volatile private var carSeenOnAt = Long.MIN_VALUE
+
+    /**
+     * After the drive unit fell silent: keep looking only if someone touched the screen or drove in the
+     * last 90 s and the car hasn't answered since (it may be starting up). If it answered after that and
+     * then went silent, it was switched off: leave the adapter alone.
+     */
+    private fun carMayBeStarting(): Boolean =
+        presenceAt != Long.MIN_VALUE && Mono.ms() - presenceAt < PRESENCE_FRESH_MS && carSeenOnAt < presenceAt
     /** elapsedRealtime when the app attached, and whether this start looks like the box's short restart after parking. */
     private var appStartedAt = 0L
     private var ghostStart = false
@@ -299,6 +334,16 @@ object ObdEngine {
         var useChannel1 = prefs.getBoolean(KEY_CHANNEL1, true)
         var downSince = Mono.ms()
         while (currentCoroutineContext().isActive) {
+            if (!gateOpen) {
+                AppLog.info(TAG, "Not waking the adapter until someone's in the car (a touch on the screen, or driving)")
+                _readings.value = emptyMap()
+                _status.value = _status.value.copy(
+                    state = LinkState.WaitingForDriver,
+                    detail = "Waiting for you: touch the screen or drive. The app doesn't wake the adapter in a parked car.",
+                )
+                while (!gateOpen) delay(250)
+                downSince = Mono.ms()
+            }
             val device = findAdapter()
             if (device == null) {
                 delay(3_000)
@@ -325,13 +370,18 @@ object ObdEngine {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AdapterSleeping) {
-                // The app put the adapter to sleep because the car is off; its link has dropped. Look again
-                // in a while (the box usually loses power before that). Not a fault.
+                // The app put the adapter to sleep because the car is off; its link has dropped. Not a fault.
+                // Someone touched the screen or drove in the last 90 s: the car may be starting, look again
+                // in 10 s. Otherwise leave the adapter alone until someone is in the car again.
                 _readings.value = emptyMap()
                 _status.value = _status.value.copy(state = LinkState.CarAsleep, detail = "The car is switched off. The adapter is asleep until it's on.")
                 current = null
                 conn?.close()
-                delay(SLEEP_RECHECK_MS)
+                if (carMayBeStarting()) {
+                    delay(SLEEP_RECHECK_MS)
+                } else {
+                    gateClosedAt = Mono.ms()
+                }
                 continue
             } catch (e: Exception) {
                 // stop() closes the link to unblock us: that's not a fault.
@@ -531,6 +581,7 @@ object ObdEngine {
             }
             if (answered) {
                 quietCycles = 0
+                carSeenOnAt = Mono.ms()
             } else if (++quietCycles == QUIET_CYCLES_TO_SLEEP) {
                 AppLog.info(TAG, "The drive unit isn't answering: the car is switched off. Asking nothing else until it is on.")
                 _readings.value = emptyMap()

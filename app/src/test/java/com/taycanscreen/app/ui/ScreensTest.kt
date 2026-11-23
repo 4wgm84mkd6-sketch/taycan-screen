@@ -145,6 +145,12 @@ class ScreensTest {
 
     @Test fun quietGpsSpeed() = gpsOnly { quiet("23-quiet-gps-speed") }
 
+    // Box started in a parked car: the app leaves the adapter alone until a touch or driving (alarm).
+    @Test fun waitingForDriver() {
+        ObdEngine.preview(emptyMap(), ObdStatus(LinkState.WaitingForDriver, "Waiting for you"))
+        shoot("24-waiting-for-driver")
+    }
+
     @Test fun parked() {
         ObdEngine.preview(driving(speedKmh = 0.0, gear = 5.0, amps = -3.0), live)
         SpeedLimit.preview(null)

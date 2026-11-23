@@ -187,7 +187,7 @@ object TripComputer {
             }
 
             // Trip: while the car is talking to us.
-            if (state == LinkState.CarAsleep) {
+            if (state == LinkState.CarAsleep || state == LinkState.WaitingForDriver) {
                 _trip.value?.let { finish(it); _trip.value = null }
                 continue
             }

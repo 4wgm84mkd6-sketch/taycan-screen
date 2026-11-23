@@ -224,6 +224,8 @@ fun MapArea(
                 if (h != 0L && targets.acquireAt == 0L) targets.acquireAt = maxOf(SystemClock.elapsedRealtime(), h + 700)
             }
             gps.fix = loc
+            // Moving (3 mph or more) means someone is driving: the car link may wake the adapter.
+            if (loc.hasSpeed() && loc.speed * 2.236936f >= 3f) com.taycanscreen.app.obd.ObdEngine.notePresence("moving")
             gps.heading = bearing
         }
     }

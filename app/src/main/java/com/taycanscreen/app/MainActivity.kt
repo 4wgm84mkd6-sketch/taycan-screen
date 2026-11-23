@@ -230,6 +230,12 @@ class MainActivity : ComponentActivity() {
         AppLog.info("app", "Configuration changed in place: mcc ${newConfig.mcc} mnc ${newConfig.mnc} uiMode ${newConfig.uiMode} font ${newConfig.fontScale}")
     }
 
+    /** Any touch means someone is in the car: the car link may wake the adapter (see ObdEngine.notePresence). */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) com.taycanscreen.app.obd.ObdEngine.notePresence("touch")
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun onPause() {
         super.onPause()
         com.taycanscreen.app.log.FrameStats.stop()
@@ -429,10 +435,11 @@ private fun StatusPanel(obd: ObdViewModel, modifier: Modifier) {
             }
         }
         row(
-            "Car", when (car.state) { LinkState.Live -> true; LinkState.CarAsleep, LinkState.Stopped -> null; else -> false },
+            "Car", when (car.state) { LinkState.Live -> true; LinkState.CarAsleep, LinkState.Stopped, LinkState.WaitingForDriver -> null; else -> false },
             when (car.state) {
                 LinkState.Live -> "Connected, reading the car" + (car.adapterName?.let { " through $it" } ?: "")
                 LinkState.CarAsleep -> "The car is off. Reading resumes when it's switched on."
+                LinkState.WaitingForDriver -> "Waiting for you: touch the screen or drive. The app doesn't wake the adapter in a parked car (it sets off the alarm)."
                 else -> car.detail.ifBlank { "Not connected" }
             },
         )

@@ -51,6 +51,10 @@ Read `docs/HANDOFF.md` first: hardware, what's proven in the car, and the ordere
   commands go to the adapter only.
 - Don't require `0100` to succeed (the car doesn't answer it). Set the protocol explicitly as the
   definitions indicate.
+- Don't wake the adapter in a parked car: the box also powers up in a locked car, and the adapter
+  starting up then sets off the alarm (owner, 2026-11-22). The car link connects only after a touch on
+  the screen or GPS movement ≥ 3 mph (`ObdEngine.notePresence`), and stops again once the car is
+  switched off. Adapter settings (owner's Tools buttons): sleep after 30 s, no wake on 12 V changes.
 - Log every raw adapter exchange with timestamps (`AppLog.tx` / `AppLog.rx`).
 - Show "—" for unavailable data, never stale values. Recover automatically from Bluetooth/OBD drops.
 - Battery % = "SoC Display". Don't display "SoC HR" (raw).
