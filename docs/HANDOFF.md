@@ -388,3 +388,14 @@ I work entirely from my iPhone. You can't reach the box directly, so:
   - When the drive unit falls silent (car off), the gate closes, unless there was a touch or movement in the last 90 s and the car hasn't answered since (car may be starting). In that case it rechecks every 10 s.
   - Trip computer treats WaitingForDriver like CarAsleep. CLAUDE.md OBD rules updated.
   - Cost: car data now starts on the first touch or once moving, not by itself at power-up.
+- 2026-11-25: Upload `2026-11-24/081133-build229` and `143728-build229` (sessions 331–349).
+  - **Presence gate works:** every start logs "Not waking the adapter until someone's in the car"; drives open it by "moving" within seconds. Parked starts 331–333, 338, 343 and 348 never touched the adapter; short restarts 335, 342 and 345 didn't either.
+  - Alarm list not yet received.
+- 2026-11-25: Owner: "Spotify keeps logging out." **Two logouts on 24 Nov:**
+  - after the park at ~07:59 (336 ended with Spotify playing; 338 and 339 `NotLoggedInException`);
+  - after the park at 14:05 (344 playing; 346 and 348 signed out). The owner signed in again at 14:36 (349).
+  - In 338 and 346 Spotify was already signed out ~5 s after app start, with the box still offline. **The sign-in was lost on the box itself (storage), not revoked by Spotify's servers.**
+  - The 12:59 park (341) survived.
+- 2026-11-25: **Build 231** (`main` fbff335; work-branch run 130 green incl. screen pictures; release asset published): `util/DiskSync` runs `sync` every 5 s from `TaycanApp`. Recent writes otherwise sit in memory for up to a minute, and the box loses power without warning.
+  - Logs "Writing the box's storage every 5 s (first sync took N ms)" or that the box refused.
+  - A mitigation, not a proven fix. If logouts continue, the remaining fix is power: a supply that lets the box shut down cleanly.
