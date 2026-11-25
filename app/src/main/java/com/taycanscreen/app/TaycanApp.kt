@@ -8,6 +8,7 @@ class TaycanApp : Application() {
         super.onCreate()
         AppLog.init(this)
         com.taycanscreen.app.obd.ObdEngine.noteStart(this)
+        com.taycanscreen.app.util.DiskSync.start() // Spotify's sign-in vs the box's power cuts
         com.taycanscreen.app.audio.EqEngine.init(this)
         com.taycanscreen.app.music.SpotifyWeb.init(this)
         com.taycanscreen.app.net.NetMonitor.init(this)
